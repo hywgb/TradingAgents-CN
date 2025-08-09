@@ -15,6 +15,12 @@ from typing import List, Dict, Optional, Iterable
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
 
+# 可选指标
+try:
+    from tradingagents.utils.metrics import metrics
+except Exception:
+    metrics = None
+
 # 可选导入：MongoDB
 try:
     from tradingagents.config.database_manager import get_mongodb_client, is_mongodb_available
@@ -87,6 +93,8 @@ def scrape_x_posts(query: str, limit: int = 200) -> List[XPost]:
     if not SNSCRAPE_AVAILABLE:
         raise ImportError("未安装 snscrape，请先: pip install snscrape")
     results: List[XPost] = []
+    import time as _t
+    t0 = _t.perf_counter()
     try:
         scraper = sntwitter.TwitterSearchScraper(query)
         for i, tweet in enumerate(scraper.get_items()):
@@ -110,6 +118,11 @@ def scrape_x_posts(query: str, limit: int = 200) -> List[XPost]:
                 continue
     except Exception as e:  # pragma: no cover
         logger.error(f"[X] 抓取失败: {e}")
+    finally:
+        if metrics:
+            metrics.inc("x_scrape_requests_total", {"source": "snscrape"})
+            metrics.inc("x_posts_total", {}, value=len(results))
+            metrics.hist("x_scrape_latency_seconds", (_t.perf_counter()-t0))
     return results
 
 
@@ -119,6 +132,9 @@ def persist_to_mongodb(posts: Iterable[XPost], symbol: Optional[str], company_na
     client = get_mongodb_client()
     if not client:
         return 0
+    import time as _t
+    t0 = _t.perf_counter()
+    upserts_cnt = 0
     try:
         db = client.get_database('tradingagents')
         col = db.get_collection('x_posts')
@@ -157,10 +173,15 @@ def persist_to_mongodb(posts: Iterable[XPost], symbol: Optional[str], company_na
         bulk_ops = [UpdateOne(o['update_one']['filter'], o['update_one']['update'], upsert=True) for o in ops]
         res = col.bulk_write(bulk_ops, ordered=False)
         upserts = (res.upserted_count or 0) + (res.modified_count or 0)
-        return int(upserts)
+        upserts_cnt = int(upserts)
+        return upserts_cnt
     except Exception as e:  # pragma: no cover
         logger.error(f"[X] MongoDB持久化失败: {e}")
         return 0
+    finally:
+        if metrics:
+            metrics.inc("x_mongo_upserts_total", {}, value=upserts_cnt)
+            metrics.hist("x_mongo_latency_seconds", (_t.perf_counter()-t0))
 
 
 def fetch_and_store_x_for_a_share(symbol: str, start_date: str, end_date: str, limit: int = 200) -> List[XPost]:
@@ -182,6 +203,8 @@ def fetch_and_store_x_for_a_share(symbol: str, start_date: str, end_date: str, l
     saved = persist_to_mongodb(posts, symbol, company_name)
     if saved:
         logger.info(f"[X] 已写入MongoDB: {saved} 条")
+    if metrics:
+        metrics.inc("x_pipeline_runs_total", {"market": "A"})
     return posts
 
 

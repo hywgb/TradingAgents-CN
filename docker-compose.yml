@@ -8,6 +8,7 @@ services:
     container_name: TradingAgents-web
     ports:
       - "8501:8501"
+      - "9100:9100"
     volumes:
       - .env:/app/.env
       # 开发环境代码映射

@@ -538,6 +538,13 @@ def render_system_settings():
     except Exception:
         st.caption("指标模块不可用")
 
+    # 指标端点
+    st.markdown("**Metrics导出端点**")
+    import os
+    port = os.getenv('TA_METRICS_PORT', '9100')
+    st.write(f"Prometheus 端点: http://localhost:{port}/metrics")
+    st.caption("可用 Prometheus 抓取，或在浏览器直接查看。通过环境变量 TA_METRICS_EXPORT/TA_METRICS_PORT 控制开启与端口。")
+
 
 def render_env_status():
     """显示.env配置状态"""
