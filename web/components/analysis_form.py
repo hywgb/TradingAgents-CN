@@ -218,6 +218,19 @@ def render_analysis_form():
                 value="",
                 help="例如：600036,600519,000001；留空则仅对当前标的进行量化分析"
             )
+            cs_freq = st.selectbox(
+                "横截面调仓频率",
+                options=["每周", "每月"],
+                index=0,
+                help="滚动横截面回测的调仓频率"
+            )
+            cs_top_k = st.slider(
+                "每期选股Top-K",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="每个调仓期选择的股票数量"
+            )
             
             include_risk_assessment = st.checkbox(
                 "包含风险评估",
@@ -272,6 +285,8 @@ def render_analysis_form():
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
             'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -325,6 +340,8 @@ def render_analysis_form():
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
             'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -343,6 +360,8 @@ def render_analysis_form():
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
             'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }

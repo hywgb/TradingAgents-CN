@@ -336,6 +336,26 @@ def render_detailed_analysis(state):
                                 st.caption('Top Scores 示例')
                                 st.write(value['scores'])
                             continue
+                        if key == 'cross_section_rolling' and isinstance(value, dict):
+                            st.subheader('滚动横截面回测')
+                            try:
+                                curve = value.get('cum_curve', [])
+                                if curve:
+                                    cdf = pd.DataFrame(curve)
+                                    cdf['cum_ret'] = cdf['cum'] - 1.0
+                                    fig2 = go.Figure()
+                                    fig2.add_trace(go.Scatter(x=cdf['date'], y=cdf['cum_ret'], mode='lines', name='累积收益'))
+                                    st.plotly_chart(fig2, use_container_width=True)
+                                st.write(value.get('summary', {}))
+                            except Exception:
+                                pass
+                            # 导出按钮（CSV）
+                            try:
+                                from utils.quant_exporter import render_quant_export_buttons
+                                render_quant_export_buttons(content)
+                            except Exception:
+                                pass
+                            continue
                         if key == 'factors' and hasattr(value, 'head'):
                             st.subheader('因子样例（最近10行）')
                             st.dataframe(value.tail(10))

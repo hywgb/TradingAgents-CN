@@ -185,3 +185,162 @@ def cross_section_backtest(universe: List[str], start_date: str, end_date: str, 
         rets.append(max(0.0, r - cost))
     port_ret = float(np.mean(rets)) if rets else 0.0
     return {'universe': universe, 'selected': selected, 'portfolio_return': port_ret, 'scores': scores[:5]}
+
+
+def _resample_dates(dates: pd.Series, freq: str) -> List[str]:
+    """Resample trading dates to period endpoints according to freq (e.g., 'W','M').
+    Returns a sorted list of end dates in '%Y-%m-%d' format that are present in dates.
+    """
+    if dates.empty:
+        return []
+    d = pd.to_datetime(dates)
+    # Build a DataFrame for resampling alignment
+    tmp = pd.DataFrame({'one': 1}, index=d)
+    # Use period end by resampling then forward/back alignment
+    if freq.upper().startswith('W'):
+        rs = tmp.resample('W-FRI').sum()
+    elif freq.upper().startswith('M'):
+        rs = tmp.resample('M').sum()
+    else:
+        # Default weekly Friday
+        rs = tmp.resample('W-FRI').sum()
+    # Map resampled index back to nearest trading date <= period end
+    period_ends: List[str] = []
+    d_sorted = pd.Series(d.sort_values().unique())
+    for end in rs.index:
+        end_date = pd.Timestamp(end).tz_localize(None).to_pydatetime().date()
+        # find last trading day <= end_date
+        candidates = d_sorted[d_sorted <= pd.Timestamp(end_date)]
+        if len(candidates) == 0:
+            continue
+        period_ends.append(pd.Timestamp(candidates.iloc[-1]).strftime('%Y-%m-%d'))
+    # De-duplicate and sort
+    period_ends = sorted(list(dict.fromkeys(period_ends)))
+    return period_ends
+
+
+def _score_latest(fac: pd.DataFrame) -> float:
+    """Compute simple score on the latest row of factors."""
+    if fac.empty:
+        return float('nan')
+    latest = fac.iloc[-1]
+    return float(
+        (latest.get('mom_20', 0.0) or 0.0)
+        + (latest.get('ma20_dev', 0.0) or 0.0)
+        - (latest.get('vol_20', 0.0) or 0.0)
+    )
+
+
+def rolling_cross_section_backtest(
+    universe: List[str],
+    start_date: str,
+    end_date: str,
+    freq: str = 'W',
+    top_k: int = 3,
+    commission_bps: int = 0,
+) -> Dict[str, object]:
+    """
+    滚动横截面回测（简版）：
+    - 以freq为调仓频率（'W'周/'M'月），每期在样本期末日用简单分数选择Top-K
+    - 下一交易日开盘到收盘（日收益近似）作为当期收益，组合等权
+    - 扣除单边交易成本（bps）
+
+    返回:
+    {
+      'params': {...},
+      'dates': [rebalance_dates...],
+      'selected_each_period': [[symbols...], ...],
+      'period_returns': [r1, r2, ...],
+      'cum_curve': [{'date': d, 'cum': v}, ...],
+      'summary': {'cum_return': x, 'avg_period_ret': y, 'periods': n}
+    }
+    """
+    top_k = max(1, int(top_k))
+    cost = commission_bps / 10000.0 if commission_bps else 0.0
+
+    # Load and cache factors per symbol once
+    sym_to_fac: Dict[str, pd.DataFrame] = {}
+    for sym in universe:
+        try:
+            df = load_daily_bars(sym, start_date, end_date)
+            if df.empty or len(df) < 40:
+                continue
+            fac = compute_alpha_factors(df)
+            sym_to_fac[sym] = fac
+        except Exception as e:
+            logger.warning(f"[Quant] 加载因子失败 {sym}: {e}")
+
+    if not sym_to_fac:
+        return {'params': {'freq': freq, 'top_k': top_k, 'commission_bps': commission_bps},
+                'dates': [], 'selected_each_period': [], 'period_returns': [],
+                'cum_curve': [], 'summary': {'cum_return': 0.0, 'avg_period_ret': 0.0, 'periods': 0}}
+
+    # Determine rebalance dates based on union of trading calendars
+    all_dates = pd.Series(sorted({d for fac in sym_to_fac.values() for d in fac['date']}))
+    rbd = _resample_dates(all_dates, freq)
+    if len(rbd) == 0:
+        return {'params': {'freq': freq, 'top_k': top_k, 'commission_bps': commission_bps},
+                'dates': [], 'selected_each_period': [], 'period_returns': [],
+                'cum_curve': [], 'summary': {'cum_return': 0.0, 'avg_period_ret': 0.0, 'periods': 0}}
+
+    selected_each: List[List[str]] = []
+    period_rets: List[float] = []
+
+    for d in rbd:
+        # Rank universe at date d by latest score up to d
+        scores: List[Tuple[str, float]] = []
+        for sym, fac in sym_to_fac.items():
+            fac_d = fac[fac['date'] <= d]
+            if fac_d.empty:
+                continue
+            scores.append((sym, _score_latest(fac_d)))
+        if not scores:
+            selected_each.append([])
+            period_rets.append(0.0)
+            continue
+        scores.sort(key=lambda x: (np.nan_to_num(x[1], nan=-1e9)), reverse=True)
+        picks = [s for s, _ in scores[:top_k]]
+        selected_each.append(picks)
+
+        # Compute next-day returns for picks
+        rets = []
+        for sym in picks:
+            fac = sym_to_fac[sym]
+            # Locate index of date d in this symbol
+            idx = fac.index[fac['date'] == d]
+            if len(idx) == 0:
+                # find last date <= d
+                fac_d = fac[fac['date'] <= d]
+                if fac_d.empty:
+                    continue
+                i = fac_d.index[-1]
+            else:
+                i = idx[0]
+            # next day return
+            if i + 1 < len(fac):
+                r = float(fac['close'].pct_change().iloc[i + 1]) if not np.isnan(fac['close'].pct_change().iloc[i + 1]) else 0.0
+                rets.append(max(0.0, r - cost))
+        port_ret = float(np.mean(rets)) if rets else 0.0
+        period_rets.append(port_ret)
+
+    # Build cumulative curve
+    cum = 1.0
+    curve = []
+    for d, r in zip(rbd, period_rets):
+        cum *= (1.0 + r)
+        curve.append({'date': d, 'cum': cum})
+
+    summary = {
+        'cum_return': cum - 1.0,
+        'avg_period_ret': float(np.mean(period_rets)) if period_rets else 0.0,
+        'periods': len(rbd)
+    }
+
+    return {
+        'params': {'freq': freq, 'top_k': top_k, 'commission_bps': commission_bps},
+        'dates': rbd,
+        'selected_each_period': selected_each,
+        'period_returns': period_rets,
+        'cum_curve': curve,
+        'summary': summary
+    }

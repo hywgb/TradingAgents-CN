@@ -472,11 +472,17 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
                         # 多标的横截面（可选）
                         if quant_universe:
                             try:
-                                from tradingagents.dataflows.quant_cn import cross_section_backtest
+                                from tradingagents.dataflows.quant_cn import cross_section_backtest, rolling_cross_section_backtest
                                 uni = [s.strip() for s in quant_universe.split(',') if s.strip()]
                                 if uni:
                                     cs = cross_section_backtest(uni, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), commission_bps=commission_bps)
                                     state['quant_report']['cross_section'] = cs
+                                    # 读取滚动参数
+                                    cs_freq = (fc.get('cs_freq') or '每周')
+                                    cs_top_k = int(fc.get('cs_top_k', 3))
+                                    freq = 'W' if cs_freq == '每周' else 'M'
+                                    csr = rolling_cross_section_backtest(uni, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), freq=freq, top_k=cs_top_k, commission_bps=commission_bps)
+                                    state['quant_report']['cross_section_rolling'] = csr
                             except Exception as _:
                                 pass
         except Exception as e:
