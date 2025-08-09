@@ -1,0 +1,45 @@
+# GPU-enabled Dockerfile for TradingAgents-CN
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-venv \
+    python3-pip \
+    build-essential \
+    wkhtmltopdf \
+    xvfb \
+    fonts-wqy-zenhei \
+    fonts-wqy-microhei \
+    fonts-liberation \
+    pandoc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+RUN python3 -m pip install --no-cache-dir -U pip uv
+
+WORKDIR /app
+
+# Pre-create dirs
+RUN mkdir -p /app/data /app/logs
+
+# Start Xvfb wrapper
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 -ac +extension GLX &\nexport DISPLAY=:99\nexec "$@"' > /usr/local/bin/start-xvfb.sh \
+    && chmod +x /usr/local/bin/start-xvfb.sh
+
+# Copy project files
+COPY . .
+
+# Install project deps (editable) and CUDA-enabled PyTorch + NLP libs
+RUN uv pip install -e . && \
+    python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio && \
+    python3 -m pip install --no-cache-dir sentence-transformers transformers faiss-gpu
+
+EXPOSE 8501
+
+CMD ["/usr/local/bin/start-xvfb.sh", "python3", "-m", "streamlit", "run", "web/app.py", "--server.address=0.0.0.0", "--server.port=8501"]

@@ -31,6 +31,14 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
         super().__init__(stock_code, company_name)
         self.use_semantic = use_semantic
         self.use_local_model = use_local_model
+
+        # 设备选择（优先CUDA）
+        self.device = "cpu"
+        try:
+            import torch  # noqa: F401
+            self.device = "cuda" if self._is_cuda_available() else "cpu"
+        except Exception:
+            self.device = "cpu"
         
         # 语义模型相关
         self.sentence_model = None
@@ -46,6 +54,13 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
         if use_local_model:
             self._init_classification_model()
     
+    def _is_cuda_available(self) -> bool:
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except Exception:
+            return False
+
     def _init_semantic_model(self):
         """初始化语义相似度模型"""
         try:
@@ -57,9 +72,9 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                 
                 # 使用轻量级中文模型
                 model_name = "paraphrase-multilingual-MiniLM-L12-v2"  # 支持中文的轻量级模型
-                self.sentence_model = SentenceTransformer(model_name)
+                self.sentence_model = SentenceTransformer(model_name, device=self.device)
                 
-                # 预计算公司相关的embedding
+                # 预计算公司相关的embedding（归一化用于快速余弦相似度）
                 company_texts = [
                     self.company_name,
                     f"{self.company_name}股票",
@@ -69,8 +84,8 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                     f"{self.company_name}财报"
                 ]
                 
-                self.company_embedding = self.sentence_model.encode(company_texts)
-                logger.info(f"[增强过滤器] ✅ 语义模型加载成功: {model_name}")
+                self.company_embedding = self.sentence_model.encode(company_texts, normalize_embeddings=True)
+                logger.info(f"[增强过滤器] ✅ 语义模型加载成功: {model_name} (device={self.device})")
                 
             except ImportError:
                 logger.warning("[增强过滤器] sentence-transformers未安装，跳过语义过滤")
@@ -94,9 +109,14 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                 model_name = "uer/roberta-base-finetuned-chinanews-chinese"
                 
                 self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                self.classification_model = AutoModelForSequenceClassification.from_pretrained(model_name)
+                dtype = torch.float16 if self.device == "cuda" else torch.float32
+                self.classification_model = AutoModelForSequenceClassification.from_pretrained(
+                    model_name, torch_dtype=dtype
+                )
+                self.classification_model.to(self.device)
+                self.classification_model.eval()
                 
-                logger.info(f"[增强过滤器] ✅ 分类模型加载成功: {model_name}")
+                logger.info(f"[增强过滤器] ✅ 分类模型加载成功: {model_name} (device={self.device}, dtype={dtype})")
                 
             except ImportError:
                 logger.warning("[增强过滤器] transformers未安装，跳过本地模型分类")
@@ -159,7 +179,7 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
         Returns:
             float: 分类相关性评分 (0-100)
         """
-        if not self.use_local_model or self.classification_model is None:
+        if not self.use_local_model or self.classification_model is None or self.tokenizer is None:
             return 0
         
         try:
@@ -180,6 +200,9 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                 max_length=512
             )
             
+            # 移动到目标设备
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
             # 模型推理
             with torch.no_grad():
                 outputs = self.classification_model(**inputs)
@@ -189,7 +212,6 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                 probabilities = torch.softmax(logits, dim=-1)
                 
                 # 假设第一个类别是"相关"，第二个是"不相关"
-                # 这里需要根据具体模型调整
                 relevance_prob = probabilities[0][0].item()  # 相关性概率
                 
                 # 转换为0-100评分
@@ -270,34 +292,116 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
         
         logger.info(f"[增强过滤器] 开始增强过滤，原始数量: {len(news_df)}条，最低评分阈值: {min_score}")
         
-        filtered_news = []
+        # 统一列名获取函数
+        def get_title(row):
+            return row.get('新闻标题', row.get('标题', ''))
+        def get_content(row):
+            return row.get('新闻内容', row.get('内容', ''))
+        
+        titles = []
+        contents = []
+        for _, row in news_df.iterrows():
+            titles.append(get_title(row))
+            contents.append(get_content(row))
+        
+        # 批量计算语义分数
+        semantic_scores = None
+        if self.use_semantic and self.sentence_model is not None:
+            try:
+                texts = [f"{t} {c[:300]}" for t, c in zip(titles, contents)]
+                # 直接返回tensor，归一化以做快速余弦相似度（点积）
+                embs = self.sentence_model.encode(
+                    texts,
+                    batch_size=64,
+                    convert_to_tensor=True,
+                    normalize_embeddings=True
+                )
+                # 公司向量张量
+                try:
+                    import torch
+                    if isinstance(self.company_embedding, list):
+                        import numpy as np
+                        comp_np = np.array(self.company_embedding)
+                        company_emb = torch.from_numpy(comp_np).to(embs.device)
+                    else:
+                        # 可能是numpy array
+                        company_emb = torch.as_tensor(self.company_embedding, device=embs.device)
+                    # (N, D) x (D, M) -> (N, M)
+                    sims = embs @ company_emb.T
+                    semantic_scores = (sims.max(dim=1).values.clamp(min=0, max=1.0) * 100.0).detach().cpu().numpy()
+                except Exception as e:
+                    logger.warning(f"[增强过滤器] 批量语义相似度计算失败，回退逐条: {e}")
+                    semantic_scores = [self.calculate_semantic_similarity(t, c) for t, c in zip(titles, contents)]
+            except Exception as e:
+                logger.error(f"[增强过滤器] 语义批量编码失败: {e}")
+                semantic_scores = [0.0] * len(titles)
+        else:
+            semantic_scores = [0.0] * len(titles)
+        
+        # 批量分类分数（可选）
+        classification_scores = None
+        if self.use_local_model and self.classification_model is not None and self.tokenizer is not None:
+            try:
+                import torch
+                cls_texts = [
+                    f"关于{self.company_name}({self.stock_code})的新闻: {t} {c[:300]}"
+                    for t, c in zip(titles, contents)
+                ]
+                inputs = self.tokenizer(
+                    cls_texts,
+                    return_tensors="pt",
+                    truncation=True,
+                    padding=True,
+                    max_length=512
+                )
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    outputs = self.classification_model(**inputs)
+                    probs = torch.softmax(outputs.logits, dim=-1)
+                    # 取第0类作为相关概率（按当前模型假设）
+                    classification_scores = (probs[:, 0].clamp(min=0, max=1.0) * 100.0).detach().cpu().numpy()
+            except Exception as e:
+                logger.error(f"[增强过滤器] 分类模型批量推理失败: {e}")
+                classification_scores = [0.0] * len(titles)
+        else:
+            classification_scores = [0.0] * len(titles)
+        
+        # 组合与筛选
+        filtered_rows = []
+        weights = {
+            'rule': 0.4,
+            'semantic': 0.35,
+            'classification': 0.25
+        }
         
         for idx, row in news_df.iterrows():
-            title = row.get('新闻标题', row.get('标题', ''))
-            content = row.get('新闻内容', row.get('内容', ''))
-            
-            # 计算增强评分
-            scores = self.calculate_enhanced_relevance_score(title, content)
-            
-            if scores['final_score'] >= min_score:
+            title = titles[idx]
+            content = contents[idx]
+            rule_score = super().calculate_relevance_score(title, content)
+            s_score = float(semantic_scores[idx]) if semantic_scores is not None else 0.0
+            c_score = float(classification_scores[idx]) if classification_scores is not None else 0.0
+            final_score = (
+                weights['rule'] * rule_score +
+                weights['semantic'] * s_score +
+                weights['classification'] * c_score
+            )
+            if final_score >= min_score:
                 row_dict = row.to_dict()
-                row_dict.update(scores)  # 添加所有评分信息
-                filtered_news.append(row_dict)
-                
-                logger.debug(f"[增强过滤器] 保留新闻 (综合评分: {scores['final_score']:.1f}): {title[:50]}...")
-            else:
-                logger.debug(f"[增强过滤器] 过滤新闻 (综合评分: {scores['final_score']:.1f}): {title[:50]}...")
+                row_dict.update({
+                    'rule_score': rule_score,
+                    'semantic_score': s_score,
+                    'classification_score': c_score,
+                    'final_score': final_score,
+                })
+                filtered_rows.append(row_dict)
         
-        # 创建过滤后的DataFrame
-        if filtered_news:
-            filtered_df = pd.DataFrame(filtered_news)
-            # 按综合评分排序
-            filtered_df = filtered_df.sort_values('final_score', ascending=False)
-            logger.info(f"[增强过滤器] 增强过滤完成，保留 {len(filtered_df)}条 新闻")
+        if filtered_rows:
+            filtered_df = pd.DataFrame(filtered_rows).sort_values('final_score', ascending=False)
+            logger.info(f"[增强过滤器] 增强过滤完成，保留 {len(filtered_df)} 条 新闻")
         else:
             filtered_df = pd.DataFrame()
-            logger.warning(f"[增强过滤器] 所有新闻都被过滤，无符合条件的新闻")
-            
+            logger.warning("[增强过滤器] 所有新闻都被过滤，无符合条件的新闻")
+        
         return filtered_df
 
 

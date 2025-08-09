@@ -401,42 +401,48 @@ def get_reddit_global_news(
         str: A formatted dataframe containing the latest news articles posts on reddit and meta information in these columns: "created_utc", "id", "title", "selftext", "score", "num_comments", "url"
     """
 
-    start_date = datetime.strptime(start_date, "%Y-%m-%d")
-    before = start_date - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    before_dt = start_dt - relativedelta(days=look_back_days)
+    before = before_dt.strftime("%Y-%m-%d")
+
+    # 构造日期列表（包含两端）
+    date_list = []
+    curr = before_dt
+    while curr <= start_dt:
+        date_list.append(curr.strftime("%Y-%m-%d"))
+        curr += relativedelta(days=1)
 
     posts = []
-    # iterate from start_date to end_date
-    curr_date = datetime.strptime(before, "%Y-%m-%d")
-
-    total_iterations = (start_date - curr_date).days + 1
-    pbar = tqdm(desc=f"Getting Global News on {start_date}", total=total_iterations)
-
-    while curr_date <= start_date:
-        curr_date_str = curr_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "global_news",
-            curr_date_str,
-            max_limit_per_day,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_date += relativedelta(days=1)
-        pbar.update(1)
-
-    pbar.close()
+    # 并发抓取每日数据
+    max_workers = min(8, max(1, len(date_list)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                fetch_top_from_category,
+                "global_news",
+                d,
+                max_limit_per_day,
+                data_path=os.path.join(DATA_DIR, "reddit_data"),
+            ): d for d in date_list
+        }
+        for future in futures:
+            try:
+                result = future.result()
+                posts.extend(result)
+            except Exception as e:
+                logger.warning(f"[Reddit] 并发抓取失败: {e}")
 
     if len(posts) == 0:
         return ""
 
     news_str = ""
     for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
+        if post.get("content", "") == "":
+            news_str += f"### {post.get('title','')}\n\n"
         else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+            news_str += f"### {post.get('title','')}\n\n{post.get('content','')}\n\n"
 
-    return f"## Global News Reddit, from {before} to {curr_date}:\n{news_str}"
+    return f"## Global News Reddit, from {before} to {start_date}:\n{news_str}"
 
 
 def get_reddit_company_news(
@@ -455,47 +461,48 @@ def get_reddit_company_news(
         str: A formatted dataframe containing the latest news articles posts on reddit and meta information in these columns: "created_utc", "id", "title", "selftext", "score", "num_comments", "url"
     """
 
-    start_date = datetime.strptime(start_date, "%Y-%m-%d")
-    before = start_date - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    before_dt = start_dt - relativedelta(days=look_back_days)
+    before = before_dt.strftime("%Y-%m-%d")
+
+    # 构造日期列表（包含两端）
+    date_list = []
+    curr = before_dt
+    while curr <= start_dt:
+        date_list.append(curr.strftime("%Y-%m-%d"))
+        curr += relativedelta(days=1)
 
     posts = []
-    # iterate from start_date to end_date
-    curr_date = datetime.strptime(before, "%Y-%m-%d")
-
-    total_iterations = (start_date - curr_date).days + 1
-    pbar = tqdm(
-        desc=f"Getting Company News for {ticker} on {start_date}",
-        total=total_iterations,
-    )
-
-    while curr_date <= start_date:
-        curr_date_str = curr_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "company_news",
-            curr_date_str,
-            max_limit_per_day,
-            ticker,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_date += relativedelta(days=1)
-
-        pbar.update(1)
-
-    pbar.close()
+    max_workers = min(8, max(1, len(date_list)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                fetch_top_from_category,
+                "company_news",
+                d,
+                max_limit_per_day,
+                ticker,
+                data_path=os.path.join(DATA_DIR, "reddit_data"),
+            ): d for d in date_list
+        }
+        for future in futures:
+            try:
+                result = future.result()
+                posts.extend(result)
+            except Exception as e:
+                logger.warning(f"[Reddit] 并发抓取失败: {e}")
 
     if len(posts) == 0:
         return ""
 
     news_str = ""
     for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
+        if post.get("content", "") == "":
+            news_str += f"### {post.get('title','')}\n\n"
         else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+            news_str += f"### {post.get('title','')}\n\n{post.get('content','')}\n\n"
 
-    return f"##{ticker} News Reddit, from {before} to {curr_date}:\n\n{news_str}"
+    return f"##{ticker} News Reddit, from {before} to {start_date}:\n\n{news_str}"
 
 
 def get_stock_stats_indicators_window(
