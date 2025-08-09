@@ -15,7 +15,14 @@ from dataclasses import dataclass
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
-
+try:
+    from tradingagents.dataflows.cache_utils import cache_get_json, cache_set_json
+except Exception:
+    cache_get_json = cache_set_json = None
+try:
+    from tradingagents.utils.metrics import metrics
+except Exception:
+    metrics = None
 
 
 @dataclass
@@ -269,18 +276,48 @@ class RealtimeNewsAggregator:
                 'apiKey': self.newsapi_key
             }
             
-            async def _run():
+            # 尝试缓存 NewsAPI
+            cache_key = f"news:newsapi:{ticker}:{hours_back}h"
+            if cache_get_json:
+                cached = cache_get_json(cache_key)
+                if cached:
+                    if metrics:
+                        metrics.inc("cache_hit_total", {"cache": "newsapi"})
+                    data = cached
+                else:
+                    if metrics:
+                        metrics.inc("cache_miss_total", {"cache": "newsapi"})
+                    async def _run():
+                        from .http_client import get_http_client
+                        client = await get_http_client()
+                        resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                        resp.raise_for_status()
+                        return resp.json()
+                    try:
+                        data = asyncio.run(_run())
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        data = loop.run_until_complete(_run())
+                        loop.close()
+                    try:
+                        cache_set_json and cache_set_json(cache_key, data)
+                    except Exception:
+                        pass
+            else:
+                async def _run():
+                    from .http_client import get_http_client
+                    client = await get_http_client()
+                    resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                    resp.raise_for_status()
+                    return resp.json()
                 from .http_client import get_http_client
-                client = await get_http_client()
-                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
-                resp.raise_for_status()
-                return resp.json()
-            try:
-                data = asyncio.run(_run())
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                data = loop.run_until_complete(_run())
-                loop.close()
+                if 'data' not in locals():
+                    try:
+                        data = asyncio.run(_run())
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        data = loop.run_until_complete(_run())
+                        loop.close()
             news_items = []
             
             for item in data.get('articles', []):

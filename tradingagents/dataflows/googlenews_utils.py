@@ -7,6 +7,14 @@ import random
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
+try:
+    from tradingagents.dataflows.cache_utils import cache_get_json, cache_set_json
+except Exception:
+    cache_get_json = cache_set_json = None
+try:
+    from tradingagents.utils.metrics import metrics
+except Exception:
+    metrics = None
 
 
 async def _fetch_page(url: str, headers):
@@ -40,6 +48,17 @@ def getNewsData(query, start_date, end_date):
         )
     }
 
+    # 先查缓存
+    cache_key = f"news:google:{query}:{start_date}:{end_date}"
+    if cache_get_json:
+        cached = cache_get_json(cache_key)
+        if cached:
+            if metrics:
+                metrics.inc("cache_hit_total", {"cache": "google_news"})
+            return cached
+        else:
+            if metrics:
+                metrics.inc("cache_miss_total", {"cache": "google_news"})
     news_results = []
     async def _run():
         page = 0
@@ -83,4 +102,10 @@ def getNewsData(query, start_date, end_date):
         loop = asyncio.new_event_loop()
         loop.run_until_complete(_run())
         loop.close()
+    # 写缓存
+    if cache_set_json:
+        try:
+            cache_set_json(cache_key, news_results)
+        except Exception:
+            pass
     return news_results
