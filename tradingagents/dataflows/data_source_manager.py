@@ -39,16 +39,29 @@ class DataSourceManager:
         """初始化数据源管理器"""
         self.default_source = self._get_default_source()
         self.available_sources = self._check_available_sources()
-        self.current_source = self.default_source
+        # 结合配置管理器限制允许数据源
+        try:
+            from tradingagents.config.config_manager import config_manager
+            settings = config_manager.load_settings()
+            allowed = set([s.lower() for s in settings.get("china_data_sources_allowed", ["akshare","tushare"])])
+            self.available_sources = [s for s in self.available_sources if s.value in allowed]
+        except Exception:
+            pass
+        self.current_source = self.default_source if self.default_source in self.available_sources else (self.available_sources[0] if self.available_sources else ChinaDataSource.AKSHARE)
 
         logger.info(f"📊 数据源管理器初始化完成")
-        logger.info(f"   默认数据源: {self.default_source.value}")
+        logger.info(f"   默认数据源: {self.current_source.value}")
         logger.info(f"   可用数据源: {[s.value for s in self.available_sources]}")
 
     def _get_default_source(self) -> ChinaDataSource:
         """获取默认数据源"""
-        # 从环境变量获取，默认使用AKShare作为第一优先级数据源
-        env_source = os.getenv('DEFAULT_CHINA_DATA_SOURCE', 'akshare').lower()
+        # 从配置与环境变量获取，默认使用AKShare作为第一优先级数据源
+        try:
+            from tradingagents.config.config_manager import config_manager
+            settings = config_manager.load_settings()
+            env_source = settings.get('china_data_source_default', os.getenv('DEFAULT_CHINA_DATA_SOURCE', 'akshare')).lower()
+        except Exception:
+            env_source = os.getenv('DEFAULT_CHINA_DATA_SOURCE', 'akshare').lower()
 
         # 映射到枚举
         source_mapping = {
@@ -297,15 +310,17 @@ class DataSourceManager:
     def get_stock_data(self, symbol: str, start_date: str = None, end_date: str = None) -> str:
         """
         获取股票数据的统一接口
-
-        Args:
-            symbol: 股票代码
-            start_date: 开始日期
-            end_date: 结束日期
-
-        Returns:
-            str: 格式化的股票数据
         """
+        # A股模式屏蔽非A股（仅允许6位数字代码）
+        try:
+            from tradingagents.config.config_manager import config_manager
+            settings = config_manager.load_settings()
+            if settings.get('a_share_only_mode', True):
+                if not (symbol and str(symbol).isdigit() and len(str(symbol)) == 6):
+                    return f"❌ 当前为A股仅用模式，已屏蔽非A股代码: {symbol}"
+        except Exception:
+            pass
+
         # 记录详细的输入参数
         logger.info(f"📊 [数据获取] 开始获取股票数据",
                    extra={
@@ -615,6 +630,16 @@ class DataSourceManager:
     
     def get_stock_info(self, symbol: str) -> Dict:
         """获取股票基本信息，支持降级机制"""
+        # A股模式屏蔽非A股
+        try:
+            from tradingagents.config.config_manager import config_manager
+            settings = config_manager.load_settings()
+            if settings.get('a_share_only_mode', True):
+                if not (symbol and str(symbol).isdigit() and len(str(symbol)) == 6):
+                    return {'symbol': symbol, 'name': f'非A股({symbol})', 'source': 'blocked'}
+        except Exception:
+            pass
+
         logger.info(f"📊 [股票信息] 开始获取{symbol}基本信息...")
 
         # 首先尝试当前数据源

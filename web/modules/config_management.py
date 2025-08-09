@@ -442,6 +442,29 @@ def render_system_settings():
             key="settings_max_usage_records"
         )
 
+    # 数据源与市场设置
+    st.markdown("**数据源与市场设置**")
+    ds_col1, ds_col2, ds_col3 = st.columns(3)
+    with ds_col1:
+        china_default = st.selectbox(
+            "中国数据源默认优先",
+            ["akshare", "tushare", "baostock"],
+            index=["akshare","tushare","baostock"].index(settings.get("china_data_source_default", "akshare")),
+            help="建议优先使用 AKShare 作为A股数据源"
+        )
+    with ds_col2:
+        allowed = st.multiselect(
+            "允许的数据源",
+            ["akshare","tushare","baostock","tdx"],
+            default=settings.get("china_data_sources_allowed", ["akshare","tushare"])
+        )
+    with ds_col3:
+        a_only = st.checkbox(
+            "仅使用A股数据源（屏蔽非A股）",
+            value=settings.get("a_share_only_mode", True),
+            help="开启后屏蔽港股/美股相关数据与工具"
+        )
+
     auto_save_usage = st.checkbox(
         "自动保存使用记录",
         value=settings.get("auto_save_usage", True),
@@ -456,7 +479,11 @@ def render_system_settings():
             "cost_alert_threshold": cost_alert_threshold,
             "currency_preference": currency_preference,
             "auto_save_usage": auto_save_usage,
-            "max_usage_records": max_usage_records
+            "max_usage_records": max_usage_records,
+            # 新增：数据源
+            "china_data_source_default": china_default,
+            "china_data_sources_allowed": allowed,
+            "a_share_only_mode": a_only
         }
         
         config_manager.save_settings(new_settings)
