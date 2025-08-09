@@ -8,6 +8,7 @@ services:
     container_name: TradingAgents-web
     ports:
       - "8501:8501"
+      - "9100:9100"
     volumes:
       - .env:/app/.env
       # 开发环境代码映射
@@ -35,6 +36,18 @@ services:
       TRADINGAGENTS_MONGODB_URL: mongodb://admin:tradingagents123@mongodb:27017/tradingagents?authSource=admin
       TRADINGAGENTS_REDIS_URL: redis://:tradingagents123@redis:6379
       TRADINGAGENTS_CACHE_TYPE: redis
+      # 新版数据库管理器环境变量（使能Mongo/Redis）
+      MONGODB_ENABLED: "true"
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: 27017
+      MONGODB_USERNAME: admin
+      MONGODB_PASSWORD: tradingagents123
+      MONGODB_DATABASE: tradingagents
+      MONGODB_AUTH_SOURCE: admin
+      REDIS_ENABLED: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
       # Docker环境标识和PDF支持
       DOCKER_CONTAINER: "true"
       DISPLAY: ":99"

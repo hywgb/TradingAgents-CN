@@ -230,7 +230,11 @@ class ConfigManager:
                 "data_dir": default_data_dir,  # 数据目录配置
                 "cache_dir": os.path.join(default_data_dir, "cache"),  # 缓存目录
                 "results_dir": os.path.join(os.path.expanduser("~"), "Documents", "TradingAgents", "results"),  # 结果目录
-                "auto_create_dirs": True  # 自动创建目录
+                "auto_create_dirs": True,  # 自动创建目录
+                # 新增：数据源与市场配置
+                "china_data_source_default": "akshare",
+                "china_data_sources_allowed": ["akshare", "tushare"],
+                "a_share_only_mode": True
             }
             self.save_settings(default_settings)
     
@@ -380,6 +384,9 @@ class ConfigManager:
             "log_level": os.getenv("TRADINGAGENTS_LOG_LEVEL", "INFO"),
             "data_dir": os.getenv("TRADINGAGENTS_DATA_DIR", ""),  # 数据目录环境变量
             "cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", ""),  # 缓存目录环境变量
+            # 允许通过环境变量覆盖数据源偏好
+            "china_data_source_default": os.getenv("DEFAULT_CHINA_DATA_SOURCE", ""),
+            "a_share_only_mode": os.getenv("A_SHARE_ONLY_MODE", "").lower() in ("1","true","yes") if os.getenv("A_SHARE_ONLY_MODE") else settings.get("a_share_only_mode", False)
         }
 
         # 只有当环境变量存在且不为空时才覆盖

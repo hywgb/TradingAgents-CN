@@ -4,7 +4,7 @@
 解决新闻滞后性问题
 """
 
-import requests
+import asyncio
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -15,7 +15,14 @@ from dataclasses import dataclass
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
-
+try:
+    from tradingagents.dataflows.cache_utils import cache_get_json, cache_set_json
+except Exception:
+    cache_get_json = cache_set_json = None
+try:
+    from tradingagents.utils.metrics import metrics
+except Exception:
+    metrics = None
 
 
 @dataclass
@@ -148,10 +155,26 @@ class RealtimeNewsAggregator:
                 'token': self.finnhub_key
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            news_data = response.json()
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                import time
+                t0 = time.perf_counter()
+                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                t1 = time.perf_counter()
+                try:
+                    from tradingagents.utils.metrics import metrics as _m
+                    _m.hist('http_latency_seconds', {'host': 'finnhub.io', 'path': 'company-news'}, t1 - t0)
+                except Exception:
+                    pass
+                resp.raise_for_status()
+                return resp.json()
+            try:
+                news_data = asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                news_data = loop.run_until_complete(_run())
+                loop.close()
             news_items = []
             
             for item in news_data:
@@ -193,10 +216,26 @@ class RealtimeNewsAggregator:
                 'limit': 50
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            data = response.json()
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                import time
+                t0 = time.perf_counter()
+                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                t1 = time.perf_counter()
+                try:
+                    from tradingagents.utils.metrics import metrics as _m
+                    _m.hist('http_latency_seconds', {'host': 'alphavantage.co', 'path': 'NEWS_SENTIMENT'}, t1 - t0)
+                except Exception:
+                    pass
+                resp.raise_for_status()
+                return resp.json()
+            try:
+                data = asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                data = loop.run_until_complete(_run())
+                loop.close()
             news_items = []
             
             if 'feed' in data:
@@ -253,10 +292,64 @@ class RealtimeNewsAggregator:
                 'apiKey': self.newsapi_key
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            data = response.json()
+            # 尝试缓存 NewsAPI
+            cache_key = f"news:newsapi:{ticker}:{hours_back}h"
+            if cache_get_json:
+                cached = cache_get_json(cache_key)
+                if cached:
+                    if metrics:
+                        metrics.inc("cache_hit_total", {"cache": "newsapi"})
+                    data = cached
+                else:
+                    if metrics:
+                        metrics.inc("cache_miss_total", {"cache": "newsapi"})
+                    async def _run():
+                        from .http_client import get_http_client
+                        client = await get_http_client()
+                        import time
+                        t0 = time.perf_counter()
+                        resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                        t1 = time.perf_counter()
+                        try:
+                            from tradingagents.utils.metrics import metrics as _m
+                            _m.hist('http_latency_seconds', {'host': 'newsapi.org', 'path': 'everything'}, t1 - t0)
+                        except Exception:
+                            pass
+                        resp.raise_for_status()
+                        return resp.json()
+                    try:
+                        data = asyncio.run(_run())
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        data = loop.run_until_complete(_run())
+                        loop.close()
+                    try:
+                        cache_set_json and cache_set_json(cache_key, data)
+                    except Exception:
+                        pass
+            else:
+                async def _run():
+                    from .http_client import get_http_client
+                    client = await get_http_client()
+                    import time
+                    t0 = time.perf_counter()
+                    resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                    t1 = time.perf_counter()
+                    try:
+                        from tradingagents.utils.metrics import metrics as _m
+                        _m.hist('http_latency_seconds', {'host': 'newsapi.org', 'path': 'everything'}, t1 - t0)
+                    except Exception:
+                        pass
+                    resp.raise_for_status()
+                    return resp.json()
+                from .http_client import get_http_client
+                if 'data' not in locals():
+                    try:
+                        data = asyncio.run(_run())
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        data = loop.run_until_complete(_run())
+                        loop.close()
             news_items = []
             
             for item in data.get('articles', []):

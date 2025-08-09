@@ -12,7 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import json
-import toml
+try:
+    import toml  # type: ignore
+    _TOML_AVAILABLE = True
+except Exception:
+    toml = None
+    _TOML_AVAILABLE = False
 
 # 注意：这里不能导入自己，会造成循环导入
 # logger将在类定义后创建
@@ -140,11 +145,14 @@ class TradingAgentsLogger:
         for config_path in config_paths:
             if config_path and Path(config_path).exists():
                 try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        config_data = toml.load(f)
-
-                    # 转换配置格式
-                    return self._convert_toml_config(config_data)
+                    if _TOML_AVAILABLE:
+                        with open(config_path, 'r', encoding='utf-8') as f:
+                            config_data = toml.load(f)
+                        # 转换配置格式
+                        return self._convert_toml_config(config_data)
+                    else:
+                        # TOML不可用则跳过文件读取
+                        continue
                 except Exception as e:
                     logger.warning(f"警告: 无法加载配置文件 {config_path}: {e}")
                     continue

@@ -54,3 +54,16 @@ tradingagents = "main:main"
 [tool.setuptools.packages.find]
 include = ["tradingagents*"]
 exclude = ["tests*", "docs*", "scripts*", "data*", "logs*", "reports*", "results*", "eval_results*", "upstream_contribution*"]
+
+[project.optional-dependencies]
+nlp = [
+    "sentence-transformers>=2.7.0",
+    "transformers>=4.43.0",
+    "faiss-cpu>=1.8.0",
+    "snscrape>=0.7.0.20230622"
+]
+
+gpu = [
+    "torch>=2.3.0",
+    "faiss-gpu>=1.7.2.post2; platform_system != 'Windows'"
+]

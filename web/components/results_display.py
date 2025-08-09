@@ -282,6 +282,12 @@ def render_detailed_analysis(state):
             'title': '📋 投资建议',
             'icon': '📋',
             'description': '具体投资策略、仓位管理建议'
+        },
+        {
+            'key': 'quant_report',
+            'title': '📐 量化分析',
+            'icon': '📐',
+            'description': 'A股量化因子与简易回测结果'
         }
     ]
     
@@ -299,7 +305,67 @@ def render_detailed_analysis(state):
                     st.markdown(content)
                 elif isinstance(content, dict):
                     # 如果是字典，格式化显示
+                    # 特别处理量化：K线+信号
+                    if module['key'] == 'quant_report':
+                        fac = content.get('factors')
+                        if fac is not None and hasattr(fac, 'to_dict'):
+                            try:
+                                df = fac[['date','open','high','low','close']].copy()
+                                fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'])])
+                                st.plotly_chart(fig, use_container_width=True)
+                            except Exception:
+                                pass
+                        st.json(content.get('params', {}))
                     for key, value in content.items():
+                        # 专门处理X舆情Markdown片段
+                        if key == 'x_sentiment_md' and isinstance(value, str):
+                            st.subheader('X 平台舆情（Twitter）')
+                            st.markdown(value)
+                            continue
+                        # 简易量化渲染
+                        if key == 'backtest' and isinstance(value, dict):
+                            st.subheader('量化回测（简易）')
+                            st.write(value)
+                            if 'buy_hold_cum_return' in value:
+                                st.metric(label='区间买入并持有收益', value=f"{value['buy_hold_cum_return']*100:.2f}%")
+                            continue
+                        if key == 'cross_section' and isinstance(value, dict):
+                            st.subheader('横截面回测（极简）')
+                            st.write({k: value[k] for k in ['selected','portfolio_return'] if k in value})
+                            if 'scores' in value:
+                                st.caption('Top Scores 示例')
+                                st.write(value['scores'])
+                            continue
+                        if key == 'cross_section_rolling' and isinstance(value, dict):
+                            st.subheader('滚动横截面回测')
+                            try:
+                                curve = value.get('cum_curve', [])
+                                if curve:
+                                    cdf = pd.DataFrame(curve)
+                                    cdf['cum_ret'] = cdf['cum'] - 1.0
+                                    fig2 = go.Figure()
+                                    fig2.add_trace(go.Scatter(x=cdf['date'], y=cdf['cum_ret'], mode='lines', name='累积收益'))
+                                    st.plotly_chart(fig2, use_container_width=True)
+                                summ = value.get('summary', {})
+                                if summ:
+                                    cols = st.columns(4)
+                                    cols[0].metric('累计收益', f"{summ.get('cum_return',0)*100:.2f}%")
+                                    cols[1].metric('最大回撤', f"{summ.get('max_drawdown',0)*100:.2f}%")
+                                    cols[2].metric('胜率', f"{summ.get('win_rate',0)*100:.1f}%")
+                                    cols[3].metric('平均换手', f"{summ.get('avg_turnover',0)*100:.1f}%")
+                            except Exception:
+                                pass
+                            # 导出按钮（CSV）
+                            try:
+                                from utils.quant_exporter import render_quant_export_buttons
+                                render_quant_export_buttons(content)
+                            except Exception:
+                                pass
+                            continue
+                        if key == 'factors' and hasattr(value, 'head'):
+                            st.subheader('因子样例（最近10行）')
+                            st.dataframe(value.tail(10))
+                            continue
                         st.subheader(key.replace('_', ' ').title())
                         st.write(value)
                 else:

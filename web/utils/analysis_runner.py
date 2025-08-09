@@ -9,6 +9,12 @@ from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
+# 可选导入 streamlit（仅在Web环境下可用）
+try:
+    import streamlit as st  # type: ignore
+except Exception:
+    st = None
+
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger, get_logger_manager
 logger = get_logger('web')
@@ -393,6 +399,94 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
         logger.debug(f"🔍 [RUNNER DEBUG]   date: '{analysis_date}'")
 
         state, decision = graph.propagate(formatted_symbol, analysis_date)
+
+        # X 平台舆情（表单控制 & 主要适配A股）
+        try:
+            include_x = os.environ.get('TA_INCLUDE_X_SENTIMENT_DEFAULT', 'true').lower() in ('1','true','yes')
+            # 允许从调用参数透传表单配置（如果上层传入）
+            # 兼容旧调用，不报错
+            try:
+                fc = st.session_state.get('form_config') if st is not None else None  # noqa
+                if fc and isinstance(fc, dict) and 'include_x_sentiment' in fc:
+                    include_x = bool(fc.get('include_x_sentiment'))
+                    x_days = int(fc.get('x_look_back_days', 7))
+                    x_limit = int(fc.get('x_limit', 200))
+                else:
+                    x_days = 7
+                    x_limit = 200
+            except Exception:
+                x_days = 7
+                x_limit = 200
+
+            if include_x and market_type == 'A股':
+                update_progress("💭 抓取X平台舆情...")
+                try:
+                    from tradingagents.dataflows.interface import get_x_a_share_sentiment
+                    x_md = get_x_a_share_sentiment(formatted_symbol, analysis_date, look_back_days=x_days, limit=x_limit)
+                except Exception as e:
+                    logger.warning(f"[X] 获取舆情失败: {e}")
+                    x_md = ""
+                if x_md:
+                    state.setdefault('sentiment_report', {})
+                    # 合并到情绪模块
+                    prev = state['sentiment_report'].get('x_sentiment_md')
+                    state['sentiment_report']['x_sentiment_md'] = (prev + '\n\n' if prev else '') + x_md
+        except Exception as e:
+            logger.warning(f"[X] 舆情集成失败: {e}")
+
+        # 简易量化分析（A股）
+        try:
+            if market_type == 'A股':
+                update_progress("📐 运行量化因子与回测...")
+                from tradingagents.dataflows.quant_cn import run_quant_pipeline
+                # 优先读取表单配置参数
+                try:
+                    fc = st.session_state.get('form_config') if st is not None else None
+                except Exception:
+                    fc = None
+                if fc and isinstance(fc, dict):
+                    look_back_days = int(fc.get('quant_look_back_days', {1:120,2:180,3:240,4:360}.get(research_depth, 240)))
+                    commission_bps = int(fc.get('quant_commission_bps', 1))
+                    enable_quant = bool(fc.get('enable_quant', True))
+                    quant_universe = fc.get('quant_universe', '').strip()
+                else:
+                    look_back_days = {1:120,2:180,3:240,4:360}.get(research_depth, 240)
+                    commission_bps = 1
+                    enable_quant = True
+                    quant_universe = ''
+                if enable_quant:
+                    import datetime as _dt
+                    end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
+                    start_dt = end_dt - _dt.timedelta(days=look_back_days)
+                    qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), commission_bps=commission_bps)
+                    if qres:
+                        state.setdefault('quant_report', {})
+                        state['quant_report']['params'] = {
+                            'look_back_days': look_back_days,
+                            'commission_bps': commission_bps
+                        }
+                        state['quant_report']['backtest'] = qres.get('backtest', {})
+                        fac = qres.get('factors')
+                        if fac is not None and hasattr(fac, 'tail'):
+                            state['quant_report']['factors'] = fac.tail(100)
+                        # 多标的横截面（可选）
+                        if quant_universe:
+                            try:
+                                from tradingagents.dataflows.quant_cn import cross_section_backtest, rolling_cross_section_backtest
+                                uni = [s.strip() for s in quant_universe.split(',') if s.strip()]
+                                if uni:
+                                    cs = cross_section_backtest(uni, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), commission_bps=commission_bps)
+                                    state['quant_report']['cross_section'] = cs
+                                    # 读取滚动参数
+                                    cs_freq = (fc.get('cs_freq') or '每周')
+                                    cs_top_k = int(fc.get('cs_top_k', 3))
+                                    freq = 'W' if cs_freq == '每周' else 'M'
+                                    csr = rolling_cross_section_backtest(uni, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), freq=freq, top_k=cs_top_k, commission_bps=commission_bps)
+                                    state['quant_report']['cross_section_rolling'] = csr
+                            except Exception as _:
+                                pass
+        except Exception as e:
+            logger.warning(f"[Quant] 量化集成失败: {e}")
 
         # 调试信息
         logger.debug(f"🔍 [DEBUG] 分析完成，decision类型: {type(decision)}")

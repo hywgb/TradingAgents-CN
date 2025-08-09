@@ -34,34 +34,11 @@ class AKShareProvider:
             logger.error(f"❌ AKShare未安装")
 
     def _configure_timeout(self):
-        """配置AKShare的超时设置"""
+        """配置AKShare的超时设置（避免硬依赖requests，使用全局socket超时）"""
         try:
-            import requests
             import socket
-
-            # 设置更长的超时时间
             socket.setdefaulttimeout(60)  # 60秒超时
-
-            # 如果AKShare使用requests，设置默认超时
-            if hasattr(requests, 'adapters'):
-                from requests.adapters import HTTPAdapter
-                from urllib3.util.retry import Retry
-
-                # 创建重试策略
-                retry_strategy = Retry(
-                    total=3,
-                    backoff_factor=1,
-                    status_forcelist=[429, 500, 502, 503, 504],
-                )
-
-                # 设置适配器
-                adapter = HTTPAdapter(max_retries=retry_strategy)
-                session = requests.Session()
-                session.mount("http://", adapter)
-                session.mount("https://", adapter)
-
-                logger.info(f"🔧 AKShare超时配置完成: 60秒超时，3次重试")
-
+            logger.info(f"🔧 AKShare超时配置完成: 全局socket超时60秒")
         except Exception as e:
             logger.error(f"⚠️ AKShare超时配置失败: {e}")
             logger.info(f"🔧 使用默认超时设置")

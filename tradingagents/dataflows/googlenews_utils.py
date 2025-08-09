@@ -1,39 +1,37 @@
 import json
-import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import time
+import asyncio
 import random
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-    retry_if_result,
-)
 
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger
 logger = get_logger('agents')
+try:
+    from tradingagents.dataflows.cache_utils import cache_get_json, cache_set_json
+except Exception:
+    cache_get_json = cache_set_json = None
+try:
+    from tradingagents.utils.metrics import metrics
+except Exception:
+    metrics = None
 
 
-def is_rate_limited(response):
-    """Check if the response indicates rate limiting (status code 429)"""
-    return response.status_code == 429
-
-
-@retry(
-    retry=(retry_if_result(is_rate_limited) | retry_if_exception_type(requests.exceptions.ConnectionError) | retry_if_exception_type(requests.exceptions.Timeout)),
-    wait=wait_exponential(multiplier=1, min=4, max=60),
-    stop=stop_after_attempt(5),
-)
-def make_request(url, headers):
-    """Make a request with retry logic for rate limiting and connection issues"""
-    # Random delay before each request to avoid detection
-    time.sleep(random.uniform(2, 6))
-    # 添加超时参数，设置连接超时和读取超时
-    response = requests.get(url, headers=headers, timeout=(10, 30))  # 连接超时10秒，读取超时30秒
-    return response
+async def _fetch_page(url: str, headers):
+    # Random jitter to avoid detection
+    await asyncio.sleep(random.uniform(0.5, 1.5))
+    from .http_client import get_http_client
+    client = await get_http_client()
+    import time
+    t0 = time.perf_counter()
+    resp = await client.get(url, headers=headers, max_attempts=5)
+    t1 = time.perf_counter()
+    try:
+        from tradingagents.utils.metrics import metrics as _m
+        _m.hist('http_latency_seconds', {'host': 'www.google.com', 'path': 'news'}, t1 - t0)
+    except Exception:
+        pass
+    return resp
 
 
 def getNewsData(query, start_date, end_date):
@@ -58,72 +56,64 @@ def getNewsData(query, start_date, end_date):
         )
     }
 
+    # 先查缓存
+    cache_key = f"news:google:{query}:{start_date}:{end_date}"
+    if cache_get_json:
+        cached = cache_get_json(cache_key)
+        if cached:
+            if metrics:
+                metrics.inc("cache_hit_total", {"cache": "google_news"})
+            return cached
+        else:
+            if metrics:
+                metrics.inc("cache_miss_total", {"cache": "google_news"})
     news_results = []
-    page = 0
-    while True:
-        offset = page * 10
-        url = (
-            f"https://www.google.com/search?q={query}"
-            f"&tbs=cdr:1,cd_min:{start_date},cd_max:{end_date}"
-            f"&tbm=nws&start={offset}"
-        )
-
+    async def _run():
+        page = 0
+        while True:
+            offset = page * 10
+            url = (
+                f"https://www.google.com/search?q={query}"
+                f"&tbs=cdr:1,cd_min:{start_date},cd_max:{end_date}"
+                f"&tbm=nws&start={offset}"
+            )
+            try:
+                response = await _fetch_page(url, headers)
+                soup = BeautifulSoup(response.content, "html.parser")
+                results_on_page = soup.select("div.SoaBEf")
+                if not results_on_page:
+                    break
+                for el in results_on_page:
+                    try:
+                        link = el.find("a")["href"]
+                        title = el.select_one("div.MBeuO").get_text()
+                        snippet = el.select_one(".GI74Re").get_text()
+                        date = el.select_one(".LfVVr").get_text()
+                        source = el.select_one(".NUnG9d span").get_text()
+                        news_results.append({
+                            "link": link, "title": title, "snippet": snippet, "date": date, "source": source
+                        })
+                    except Exception as e:
+                        logger.error(f"Error processing result: {e}")
+                        continue
+                next_link = soup.find("a", id="pnnext")
+                if not next_link:
+                    break
+                page += 1
+            except Exception as e:
+                logger.error(f"获取Google新闻失败: {e}")
+                break
+    try:
+        asyncio.run(_run())
+    except RuntimeError:
+        # 如果外部已有事件循环（如在某些环境），则使用新loop
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(_run())
+        loop.close()
+    # 写缓存
+    if cache_set_json:
         try:
-            response = make_request(url, headers)
-            soup = BeautifulSoup(response.content, "html.parser")
-            results_on_page = soup.select("div.SoaBEf")
-
-            if not results_on_page:
-                break  # No more results found
-
-            for el in results_on_page:
-                try:
-                    link = el.find("a")["href"]
-                    title = el.select_one("div.MBeuO").get_text()
-                    snippet = el.select_one(".GI74Re").get_text()
-                    date = el.select_one(".LfVVr").get_text()
-                    source = el.select_one(".NUnG9d span").get_text()
-                    news_results.append(
-                        {
-                            "link": link,
-                            "title": title,
-                            "snippet": snippet,
-                            "date": date,
-                            "source": source,
-                        }
-                    )
-                except Exception as e:
-                    logger.error(f"Error processing result: {e}")
-                    # If one of the fields is not found, skip this result
-                    continue
-
-            # Update the progress bar with the current count of results scraped
-
-            # Check for the "Next" link (pagination)
-            next_link = soup.find("a", id="pnnext")
-            if not next_link:
-                break
-
-            page += 1
-
-        except requests.exceptions.Timeout as e:
-            logger.error(f"连接超时: {e}")
-            # 不立即中断，记录错误后继续尝试下一页
-            page += 1
-            if page > 3:  # 如果连续多页都超时，则退出循环
-                logger.error("多次连接超时，停止获取Google新闻")
-                break
-            continue
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"连接错误: {e}")
-            # 不立即中断，记录错误后继续尝试下一页
-            page += 1
-            if page > 3:  # 如果连续多页都连接错误，则退出循环
-                logger.error("多次连接错误，停止获取Google新闻")
-                break
-            continue
-        except Exception as e:
-            logger.error(f"获取Google新闻失败: {e}")
-            break
-
+            cache_set_json(cache_key, news_results)
+        except Exception:
+            pass
     return news_results

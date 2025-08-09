@@ -62,6 +62,12 @@ except ImportError as e:
     yf = None
     YF_AVAILABLE = False
 from .config import get_config, set_config, DATA_DIR
+# 新增：X平台数据工具
+try:
+    from .x_utils import fetch_and_store_x_for_a_share, format_posts_as_markdown
+    X_UTILS_AVAILABLE = True
+except Exception:
+    X_UTILS_AVAILABLE = False
 
 
 def get_finnhub_news(
@@ -401,42 +407,48 @@ def get_reddit_global_news(
         str: A formatted dataframe containing the latest news articles posts on reddit and meta information in these columns: "created_utc", "id", "title", "selftext", "score", "num_comments", "url"
     """
 
-    start_date = datetime.strptime(start_date, "%Y-%m-%d")
-    before = start_date - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    before_dt = start_dt - relativedelta(days=look_back_days)
+    before = before_dt.strftime("%Y-%m-%d")
+
+    # 构造日期列表（包含两端）
+    date_list = []
+    curr = before_dt
+    while curr <= start_dt:
+        date_list.append(curr.strftime("%Y-%m-%d"))
+        curr += relativedelta(days=1)
 
     posts = []
-    # iterate from start_date to end_date
-    curr_date = datetime.strptime(before, "%Y-%m-%d")
-
-    total_iterations = (start_date - curr_date).days + 1
-    pbar = tqdm(desc=f"Getting Global News on {start_date}", total=total_iterations)
-
-    while curr_date <= start_date:
-        curr_date_str = curr_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "global_news",
-            curr_date_str,
-            max_limit_per_day,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_date += relativedelta(days=1)
-        pbar.update(1)
-
-    pbar.close()
+    # 并发抓取每日数据
+    max_workers = min(8, max(1, len(date_list)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                fetch_top_from_category,
+                "global_news",
+                d,
+                max_limit_per_day,
+                data_path=os.path.join(DATA_DIR, "reddit_data"),
+            ): d for d in date_list
+        }
+        for future in futures:
+            try:
+                result = future.result()
+                posts.extend(result)
+            except Exception as e:
+                logger.warning(f"[Reddit] 并发抓取失败: {e}")
 
     if len(posts) == 0:
         return ""
 
     news_str = ""
     for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
+        if post.get("content", "") == "":
+            news_str += f"### {post.get('title','')}\n\n"
         else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+            news_str += f"### {post.get('title','')}\n\n{post.get('content','')}\n\n"
 
-    return f"## Global News Reddit, from {before} to {curr_date}:\n{news_str}"
+    return f"## Global News Reddit, from {before} to {start_date}:\n{news_str}"
 
 
 def get_reddit_company_news(
@@ -455,47 +467,48 @@ def get_reddit_company_news(
         str: A formatted dataframe containing the latest news articles posts on reddit and meta information in these columns: "created_utc", "id", "title", "selftext", "score", "num_comments", "url"
     """
 
-    start_date = datetime.strptime(start_date, "%Y-%m-%d")
-    before = start_date - relativedelta(days=look_back_days)
-    before = before.strftime("%Y-%m-%d")
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    before_dt = start_dt - relativedelta(days=look_back_days)
+    before = before_dt.strftime("%Y-%m-%d")
+
+    # 构造日期列表（包含两端）
+    date_list = []
+    curr = before_dt
+    while curr <= start_dt:
+        date_list.append(curr.strftime("%Y-%m-%d"))
+        curr += relativedelta(days=1)
 
     posts = []
-    # iterate from start_date to end_date
-    curr_date = datetime.strptime(before, "%Y-%m-%d")
-
-    total_iterations = (start_date - curr_date).days + 1
-    pbar = tqdm(
-        desc=f"Getting Company News for {ticker} on {start_date}",
-        total=total_iterations,
-    )
-
-    while curr_date <= start_date:
-        curr_date_str = curr_date.strftime("%Y-%m-%d")
-        fetch_result = fetch_top_from_category(
-            "company_news",
-            curr_date_str,
-            max_limit_per_day,
-            ticker,
-            data_path=os.path.join(DATA_DIR, "reddit_data"),
-        )
-        posts.extend(fetch_result)
-        curr_date += relativedelta(days=1)
-
-        pbar.update(1)
-
-    pbar.close()
+    max_workers = min(8, max(1, len(date_list)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                fetch_top_from_category,
+                "company_news",
+                d,
+                max_limit_per_day,
+                ticker,
+                data_path=os.path.join(DATA_DIR, "reddit_data"),
+            ): d for d in date_list
+        }
+        for future in futures:
+            try:
+                result = future.result()
+                posts.extend(result)
+            except Exception as e:
+                logger.warning(f"[Reddit] 并发抓取失败: {e}")
 
     if len(posts) == 0:
         return ""
 
     news_str = ""
     for post in posts:
-        if post["content"] == "":
-            news_str += f"### {post['title']}\n\n"
+        if post.get("content", "") == "":
+            news_str += f"### {post.get('title','')}\n\n"
         else:
-            news_str += f"### {post['title']}\n\n{post['content']}\n\n"
+            news_str += f"### {post.get('title','')}\n\n{post.get('content','')}\n\n"
 
-    return f"##{ticker} News Reddit, from {before} to {curr_date}:\n\n{news_str}"
+    return f"##{ticker} News Reddit, from {before} to {start_date}:\n\n{news_str}"
 
 
 def get_stock_stats_indicators_window(
@@ -1543,3 +1556,31 @@ def get_stock_data_by_market(symbol: str, start_date: str = None, end_date: str 
     except Exception as e:
         logger.error(f"❌ 获取股票数据失败: {e}")
         return f"❌ 获取股票{symbol}数据失败: {e}"
+
+
+def get_x_a_share_sentiment(
+    symbol: Annotated[str, "中国A股代码，如 600036"],
+    curr_date: Annotated[str, "当前日期 YYYY-MM-DD"],
+    look_back_days: Annotated[int, "回溯天数" ] = 7,
+    limit: Annotated[int, "最大抓取数量" ] = 200,
+) -> str:
+    """获取 X 平台上针对A股的舆情信息，并返回Markdown报告。
+    - 尝试抓取公开推文（中文优先）
+    - 若 MongoDB 可用将自动持久化
+    """
+    if not X_UTILS_AVAILABLE:
+        return "提示：未安装或未启用X平台依赖（snscrape），请执行 pip install snscrape"
+
+    try:
+        import datetime as _dt
+        end_date = _dt.datetime.strptime(curr_date, "%Y-%m-%d").date()
+        start_date = (end_date - relativedelta(days=look_back_days)).strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+    except Exception:
+        start_date = curr_date
+        end_str = curr_date
+
+    posts = fetch_and_store_x_for_a_share(symbol, start_date, end_str, limit=limit)
+    if not posts:
+        return ""
+    return format_posts_as_markdown(posts, top_n=min(50, len(posts)))

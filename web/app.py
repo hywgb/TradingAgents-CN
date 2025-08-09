@@ -34,6 +34,7 @@ from utils.progress_tracker import SmartStreamlitProgressDisplay, create_smart_p
 from utils.async_progress_tracker import AsyncProgressTracker
 from components.async_progress_display import display_unified_progress
 from utils.smart_session_manager import get_persistent_analysis_id, set_persistent_analysis_id
+from tradingagents.utils.metrics_server import start_metrics_server
 
 # 设置页面配置
 st.set_page_config(
@@ -255,6 +256,13 @@ def main():
 
     # 初始化会话状态
     initialize_session_state()
+
+    # 启动指标导出服务（可选）
+    try:
+        if os.getenv('TA_METRICS_EXPORT', 'true').lower() in ('1','true','yes'):
+            start_metrics_server(port=int(os.getenv('TA_METRICS_PORT','9100')))
+    except Exception:
+        pass
 
     # 自定义CSS - 调整侧边栏宽度
     st.markdown("""

@@ -442,6 +442,29 @@ def render_system_settings():
             key="settings_max_usage_records"
         )
 
+    # 数据源与市场设置
+    st.markdown("**数据源与市场设置**")
+    ds_col1, ds_col2, ds_col3 = st.columns(3)
+    with ds_col1:
+        china_default = st.selectbox(
+            "中国数据源默认优先",
+            ["akshare", "tushare", "baostock"],
+            index=["akshare","tushare","baostock"].index(settings.get("china_data_source_default", "akshare")),
+            help="建议优先使用 AKShare 作为A股数据源"
+        )
+    with ds_col2:
+        allowed = st.multiselect(
+            "允许的数据源",
+            ["akshare","tushare","baostock","tdx"],
+            default=settings.get("china_data_sources_allowed", ["akshare","tushare"])
+        )
+    with ds_col3:
+        a_only = st.checkbox(
+            "仅使用A股数据源（屏蔽非A股）",
+            value=settings.get("a_share_only_mode", True),
+            help="开启后屏蔽港股/美股相关数据与工具"
+        )
+
     auto_save_usage = st.checkbox(
         "自动保存使用记录",
         value=settings.get("auto_save_usage", True),
@@ -456,7 +479,11 @@ def render_system_settings():
             "cost_alert_threshold": cost_alert_threshold,
             "currency_preference": currency_preference,
             "auto_save_usage": auto_save_usage,
-            "max_usage_records": max_usage_records
+            "max_usage_records": max_usage_records,
+            # 新增：数据源
+            "china_data_source_default": china_default,
+            "china_data_sources_allowed": allowed,
+            "a_share_only_mode": a_only
         }
         
         config_manager.save_settings(new_settings)
@@ -498,6 +525,50 @@ def render_system_settings():
             else:
                 st.session_state.confirm_reset = True
                 st.warning("⚠️ 再次点击确认重置")
+
+    # 运行指标（简易）
+    st.markdown("**运行指标（简易）**")
+    try:
+        from tradingagents.utils.metrics import metrics
+        snap = metrics.snapshot()
+        if snap:
+            # KPI tiles
+            counters = snap.get('counters') or {}
+            hists = snap.get('hists') or {}
+            http_req = sum((counters.get('http_requests_total') or {}).values()) if isinstance(counters.get('http_requests_total'), dict) else 0
+            http_err = sum((counters.get('http_errors_total') or {}).values()) if isinstance(counters.get('http_errors_total'), dict) else 0
+            http_retry = sum((counters.get('http_retries_total') or {}).values()) if isinstance(counters.get('http_retries_total'), dict) else 0
+            cache_hit = sum((counters.get('cache_hit_total') or {}).values()) if isinstance(counters.get('cache_hit_total'), dict) else 0
+            cache_miss = sum((counters.get('cache_miss_total') or {}).values()) if isinstance(counters.get('cache_miss_total'), dict) else 0
+            p50 = (hists.get('http_latency_seconds') or {}).get('p50')
+            p95 = (hists.get('http_latency_seconds') or {}).get('p95')
+            colk1, colk2, colk3, colk4 = st.columns(4)
+            with colk1:
+                st.metric("HTTP请求", f"{int(http_req):,}")
+            with colk2:
+                st.metric("HTTP错误", f"{int(http_err):,}")
+            with colk3:
+                st.metric("HTTP重试", f"{int(http_retry):,}")
+            with colk4:
+                st.metric("缓存命中率", f"{(cache_hit/(cache_hit+cache_miss)*100 if (cache_hit+cache_miss)>0 else 0):.1f}%")
+            colh1, colh2 = st.columns(2)
+            with colh1:
+                st.metric("HTTP P50(s)", f"{p50:.2f}" if p50 is not None else "-")
+            with colh2:
+                st.metric("HTTP P95(s)", f"{p95:.2f}" if p95 is not None else "-")
+            with st.expander("原始指标快照"):
+                st.json(snap)
+        else:
+            st.caption("暂无指标数据")
+    except Exception:
+        st.caption("指标模块不可用")
+
+    # 指标端点
+    st.markdown("**Metrics导出端点**")
+    import os
+    port = os.getenv('TA_METRICS_PORT', '9100')
+    st.write(f"Prometheus 端点: http://localhost:{port}/metrics")
+    st.caption("可用 Prometheus 抓取，或在浏览器直接查看。通过环境变量 TA_METRICS_EXPORT/TA_METRICS_PORT 控制开启与端口。")
 
 
 def render_env_status():

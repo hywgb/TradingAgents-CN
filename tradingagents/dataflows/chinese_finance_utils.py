@@ -4,7 +4,7 @@
 由于微博API申请困难且功能受限，采用多源数据聚合的方式
 """
 
-import requests
+import asyncio
 import json
 import time
 import random
@@ -22,8 +22,7 @@ class ChineseFinanceDataAggregator:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
+        # 未来可在此初始化共享 httpx 客户端或代理设置
     
     def get_stock_sentiment_summary(self, ticker: str, days: int = 7) -> Dict:
         """
@@ -167,7 +166,23 @@ class ChineseFinanceDataAggregator:
     def _get_media_coverage(self, ticker: str, days: int) -> List[Dict]:
         """获取媒体报道 (示例实现)"""
         # 可以集成Google News API或其他新闻聚合服务
-        return []
+        # 示例：尝试抓取一个公开JSON源（此处仅作占位，实际请替换为可用源）
+        try:
+            import asyncio
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                # 这里使用google news搜索已在另一个模块实现，直接返回空以避免重复
+                return []
+            try:
+                return asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                res = loop.run_until_complete(_run())
+                loop.close()
+                return res
+        except Exception:
+            return []
     
     def _analyze_text_sentiment(self, text: str) -> float:
         """简单的中文文本情绪分析"""

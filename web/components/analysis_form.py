@@ -169,6 +169,68 @@ def render_analysis_form():
                 value=True,
                 help="是否包含市场情绪和投资者情绪分析"
             )
+
+            # X 平台舆情（主要适配A股，可跨市场使用）
+            include_x_sentiment = st.checkbox(
+                "启用X平台舆情 (Twitter)",
+                value=True,
+                help="抓取X平台舆情（中文优先），A股适配最佳，需安装 snscrape"
+            )
+            x_look_back_days = st.slider(
+                "X舆情回溯天数",
+                min_value=1,
+                max_value=30,
+                value=7,
+                help="从分析日期向前回溯的天数"
+            )
+            x_limit = st.slider(
+                "X舆情抓取最大条数",
+                min_value=50,
+                max_value=1000,
+                value=200,
+                step=50,
+                help="限制抓取的推文数量上限"
+            )
+
+            # 量化分析选项
+            enable_quant = st.checkbox(
+                "启用量化分析（A股）",
+                value=True,
+                help="运行基础因子与简易回测，展示K线与信号"
+            )
+            quant_look_back_days = st.slider(
+                "量化回测窗口（天）",
+                min_value=60,
+                max_value=720,
+                value=240,
+                step=30,
+                help="用于计算因子与回测的窗口长度"
+            )
+            quant_commission_bps = st.slider(
+                "交易成本（bps）",
+                min_value=0,
+                max_value=50,
+                value=1,
+                help="回测时假设的单边交易成本（基点）"
+            )
+            quant_universe = st.text_input(
+                "多标的列表（逗号分隔，可选）",
+                value="",
+                help="例如：600036,600519,000001；留空则仅对当前标的进行量化分析"
+            )
+            cs_freq = st.selectbox(
+                "横截面调仓频率",
+                options=["每周", "每月"],
+                index=0,
+                help="滚动横截面回测的调仓频率"
+            )
+            cs_top_k = st.slider(
+                "每期选股Top-K",
+                min_value=1,
+                max_value=10,
+                value=3,
+                help="每个调仓期选择的股票数量"
+            )
             
             include_risk_assessment = st.checkbox(
                 "包含风险评估",
@@ -216,6 +278,15 @@ def render_analysis_form():
             'research_depth': research_depth,
             'selected_analysts': [a[0] for a in selected_analysts],
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -262,6 +333,15 @@ def render_analysis_form():
             'analysts': [a[0] for a in selected_analysts],
             'research_depth': research_depth,
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -273,6 +353,15 @@ def render_analysis_form():
             'research_depth': research_depth,
             'selected_analysts': [a[0] for a in selected_analysts],
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
+            'cs_freq': cs_freq,
+            'cs_top_k': cs_top_k,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
