@@ -4,7 +4,7 @@
 由于微博API申请困难且功能受限，采用多源数据聚合的方式
 """
 
-import requests
+import asyncio
 import json
 import time
 import random
@@ -22,8 +22,7 @@ class ChineseFinanceDataAggregator:
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        self.session = requests.Session()
-        self.session.headers.update(self.headers)
+        # 未来可在此初始化共享 httpx 客户端或代理设置
     
     def get_stock_sentiment_summary(self, ticker: str, days: int = 7) -> Dict:
         """
