@@ -84,7 +84,31 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
                     f"{self.company_name}财报"
                 ]
                 
-                self.company_embedding = self.sentence_model.encode(company_texts, normalize_embeddings=True)
+                # 优先从缓存获取
+                try:
+                    from tradingagents.dataflows.cache_utils import emb_get, emb_set
+                    import numpy as _np
+                    cached = []
+                    need_compute = []
+                    for t in company_texts:
+                        k = f"emb:company:{self.stock_code}:{t}"
+                        arr = emb_get(k)
+                        if arr is not None:
+                            cached.append(arr)
+                        else:
+                            cached.append(None)
+                            need_compute.append((k, t))
+                    if need_compute:
+                        embs = self.sentence_model.encode([t for _, t in need_compute], normalize_embeddings=True)
+                        idx = 0
+                        for i, arr in enumerate(cached):
+                            if arr is None:
+                                cached[i] = embs[idx]
+                                emb_set(need_compute[idx][0], _np.asarray(embs[idx]))
+                                idx += 1
+                    self.company_embedding = _np.vstack(cached)
+                except Exception:
+                    self.company_embedding = self.sentence_model.encode(company_texts, normalize_embeddings=True)
                 logger.info(f"[增强过滤器] ✅ 语义模型加载成功: {model_name} (device={self.device})")
                 
             except ImportError:
@@ -309,13 +333,37 @@ class EnhancedNewsFilter(NewsRelevanceFilter):
         if self.use_semantic and self.sentence_model is not None:
             try:
                 texts = [f"{t} {c[:300]}" for t, c in zip(titles, contents)]
-                # 直接返回tensor，归一化以做快速余弦相似度（点积）
-                embs = self.sentence_model.encode(
-                    texts,
-                    batch_size=64,
-                    convert_to_tensor=True,
-                    normalize_embeddings=True
-                )
+                # 先查缓存，缺失批量计算
+                import numpy as _np
+                cached_embs = [None] * len(texts)
+                need_idx = []
+                try:
+                    from tradingagents.dataflows.cache_utils import emb_get, emb_set
+                    for i, t in enumerate(texts):
+                        k = f"emb:news:{hash(t)}"
+                        arr = emb_get(k)
+                        if arr is not None:
+                            cached_embs[i] = arr
+                        else:
+                            need_idx.append((i, k, t))
+                    if need_idx:
+                        new_embs = self.sentence_model.encode([t for _, _, t in need_idx], batch_size=64, normalize_embeddings=True)
+                        for j, (i, k, _) in enumerate(need_idx):
+                            arr = _np.asarray(new_embs[j])
+                            cached_embs[i] = arr
+                            emb_set(k, arr)
+                    import torch
+                    embs = torch.as_tensor(_np.vstack(cached_embs)).to(self.device)
+                except Exception:
+                    # 回退直接计算
+                    from sentence_transformers import SentenceTransformer  # noqa
+                    import torch
+                    embs = self.sentence_model.encode(
+                        texts,
+                        batch_size=64,
+                        convert_to_tensor=True,
+                        normalize_embeddings=True
+                    )
                 # 公司向量张量
                 try:
                     import torch
