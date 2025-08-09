@@ -166,7 +166,23 @@ class ChineseFinanceDataAggregator:
     def _get_media_coverage(self, ticker: str, days: int) -> List[Dict]:
         """获取媒体报道 (示例实现)"""
         # 可以集成Google News API或其他新闻聚合服务
-        return []
+        # 示例：尝试抓取一个公开JSON源（此处仅作占位，实际请替换为可用源）
+        try:
+            import asyncio
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                # 这里使用google news搜索已在另一个模块实现，直接返回空以避免重复
+                return []
+            try:
+                return asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                res = loop.run_until_complete(_run())
+                loop.close()
+                return res
+        except Exception:
+            return []
     
     def _analyze_text_sentiment(self, text: str) -> float:
         """简单的中文文本情绪分析"""

@@ -526,6 +526,18 @@ def render_system_settings():
                 st.session_state.confirm_reset = True
                 st.warning("⚠️ 再次点击确认重置")
 
+    # 运行指标（简易）
+    st.markdown("**运行指标（简易）**")
+    try:
+        from tradingagents.utils.metrics import metrics
+        snap = metrics.snapshot()
+        if snap:
+            st.json(snap)
+        else:
+            st.caption("暂无指标数据")
+    except Exception:
+        st.caption("指标模块不可用")
+
 
 def render_env_status():
     """显示.env配置状态"""

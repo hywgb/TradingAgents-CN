@@ -12,6 +12,7 @@ import time
 from typing import Optional, Dict
 
 import httpx
+import os
 
 try:
     from tradingagents.utils.metrics import metrics
@@ -92,6 +93,18 @@ _shared_client: Optional[HttpClient] = None
 async def get_http_client() -> HttpClient:
     global _shared_client
     if _shared_client is None:
-        # 可按需配置 per-host 速率
-        _shared_client = HttpClient()
+        # 可按需配置 per-host 速率（可通过环境变量 JSON 覆盖）
+        per_host = {
+            'www.google.com': 1.0,
+            'newsapi.org': 2.0,
+            'finnhub.io': 2.0,
+        }
+        try:
+            import json
+            cfg = os.getenv('HTTP_PER_HOST_RATE_JSON')
+            if cfg:
+                per_host.update(json.loads(cfg))
+        except Exception:
+            pass
+        _shared_client = HttpClient(per_host_rate=per_host)
     return _shared_client
