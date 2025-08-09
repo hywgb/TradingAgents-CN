@@ -4,7 +4,7 @@
 解决新闻滞后性问题
 """
 
-import requests
+import asyncio
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -148,10 +148,18 @@ class RealtimeNewsAggregator:
                 'token': self.finnhub_key
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            news_data = response.json()
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
+            try:
+                news_data = asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                news_data = loop.run_until_complete(_run())
+                loop.close()
             news_items = []
             
             for item in news_data:
@@ -193,10 +201,18 @@ class RealtimeNewsAggregator:
                 'limit': 50
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            data = response.json()
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
+            try:
+                data = asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                data = loop.run_until_complete(_run())
+                loop.close()
             news_items = []
             
             if 'feed' in data:
@@ -253,10 +269,18 @@ class RealtimeNewsAggregator:
                 'apiKey': self.newsapi_key
             }
             
-            response = requests.get(url, params=params, headers=self.headers)
-            response.raise_for_status()
-            
-            data = response.json()
+            async def _run():
+                from .http_client import get_http_client
+                client = await get_http_client()
+                resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
+            try:
+                data = asyncio.run(_run())
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                data = loop.run_until_complete(_run())
+                loop.close()
             news_items = []
             
             for item in data.get('articles', []):
