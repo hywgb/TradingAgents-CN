@@ -59,7 +59,8 @@ exclude = ["tests*", "docs*", "scripts*", "data*", "logs*", "reports*", "results
 nlp = [
     "sentence-transformers>=2.7.0",
     "transformers>=4.43.0",
-    "faiss-cpu>=1.8.0"
+    "faiss-cpu>=1.8.0",
+    "snscrape>=0.7.0.20230622"
 ]
 
 gpu = [

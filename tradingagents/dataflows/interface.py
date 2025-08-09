@@ -62,6 +62,12 @@ except ImportError as e:
     yf = None
     YF_AVAILABLE = False
 from .config import get_config, set_config, DATA_DIR
+# 新增：X平台数据工具
+try:
+    from .x_utils import fetch_and_store_x_for_a_share, format_posts_as_markdown
+    X_UTILS_AVAILABLE = True
+except Exception:
+    X_UTILS_AVAILABLE = False
 
 
 def get_finnhub_news(
@@ -1550,3 +1556,31 @@ def get_stock_data_by_market(symbol: str, start_date: str = None, end_date: str 
     except Exception as e:
         logger.error(f"❌ 获取股票数据失败: {e}")
         return f"❌ 获取股票{symbol}数据失败: {e}"
+
+
+def get_x_a_share_sentiment(
+    symbol: Annotated[str, "中国A股代码，如 600036"],
+    curr_date: Annotated[str, "当前日期 YYYY-MM-DD"],
+    look_back_days: Annotated[int, "回溯天数" ] = 7,
+    limit: Annotated[int, "最大抓取数量" ] = 200,
+) -> str:
+    """获取 X 平台上针对A股的舆情信息，并返回Markdown报告。
+    - 尝试抓取公开推文（中文优先）
+    - 若 MongoDB 可用将自动持久化
+    """
+    if not X_UTILS_AVAILABLE:
+        return "提示：未安装或未启用X平台依赖（snscrape），请执行 pip install snscrape"
+
+    try:
+        import datetime as _dt
+        end_date = _dt.datetime.strptime(curr_date, "%Y-%m-%d").date()
+        start_date = (end_date - relativedelta(days=look_back_days)).strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+    except Exception:
+        start_date = curr_date
+        end_str = curr_date
+
+    posts = fetch_and_store_x_for_a_share(symbol, start_date, end_str, limit=limit)
+    if not posts:
+        return ""
+    return format_posts_as_markdown(posts, top_n=min(50, len(posts)))
