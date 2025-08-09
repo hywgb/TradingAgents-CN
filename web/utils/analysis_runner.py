@@ -394,6 +394,40 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
 
         state, decision = graph.propagate(formatted_symbol, analysis_date)
 
+        # X 平台舆情（表单控制 & 主要适配A股）
+        try:
+            include_x = os.environ.get('TA_INCLUDE_X_SENTIMENT_DEFAULT', 'true').lower() in ('1','true','yes')
+            # 允许从调用参数透传表单配置（如果上层传入）
+            # 兼容旧调用，不报错
+            try:
+                fc = st.session_state.get('form_config') if 'st' in sys.modules else None  # noqa
+                if fc and isinstance(fc, dict) and 'include_x_sentiment' in fc:
+                    include_x = bool(fc.get('include_x_sentiment'))
+                    x_days = int(fc.get('x_look_back_days', 7))
+                    x_limit = int(fc.get('x_limit', 200))
+                else:
+                    x_days = 7
+                    x_limit = 200
+            except Exception:
+                x_days = 7
+                x_limit = 200
+
+            if include_x and market_type == 'A股':
+                update_progress("💭 抓取X平台舆情...")
+                try:
+                    from tradingagents.dataflows.interface import get_x_a_share_sentiment
+                    x_md = get_x_a_share_sentiment(formatted_symbol, analysis_date, look_back_days=x_days, limit=x_limit)
+                except Exception as e:
+                    logger.warning(f"[X] 获取舆情失败: {e}")
+                    x_md = ""
+                if x_md:
+                    state.setdefault('sentiment_report', {})
+                    # 合并到情绪模块
+                    prev = state['sentiment_report'].get('x_sentiment_md')
+                    state['sentiment_report']['x_sentiment_md'] = (prev + '\n\n' if prev else '') + x_md
+        except Exception as e:
+            logger.warning(f"[X] 舆情集成失败: {e}")
+
         # 调试信息
         logger.debug(f"🔍 [DEBUG] 分析完成，decision类型: {type(decision)}")
         logger.debug(f"🔍 [DEBUG] decision内容: {decision}")

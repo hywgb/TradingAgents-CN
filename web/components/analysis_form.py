@@ -169,6 +169,28 @@ def render_analysis_form():
                 value=True,
                 help="是否包含市场情绪和投资者情绪分析"
             )
+
+            # X 平台舆情（主要适配A股，可跨市场使用）
+            include_x_sentiment = st.checkbox(
+                "启用X平台舆情 (Twitter)",
+                value=True,
+                help="抓取X平台舆情（中文优先），A股适配最佳，需安装 snscrape"
+            )
+            x_look_back_days = st.slider(
+                "X舆情回溯天数",
+                min_value=1,
+                max_value=30,
+                value=7,
+                help="从分析日期向前回溯的天数"
+            )
+            x_limit = st.slider(
+                "X舆情抓取最大条数",
+                min_value=50,
+                max_value=1000,
+                value=200,
+                step=50,
+                help="限制抓取的推文数量上限"
+            )
             
             include_risk_assessment = st.checkbox(
                 "包含风险评估",
@@ -216,6 +238,9 @@ def render_analysis_form():
             'research_depth': research_depth,
             'selected_analysts': [a[0] for a in selected_analysts],
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -262,6 +287,9 @@ def render_analysis_form():
             'analysts': [a[0] for a in selected_analysts],
             'research_depth': research_depth,
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -273,6 +301,9 @@ def render_analysis_form():
             'research_depth': research_depth,
             'selected_analysts': [a[0] for a in selected_analysts],
             'include_sentiment': include_sentiment,
+            'include_x_sentiment': include_x_sentiment,
+            'x_look_back_days': x_look_back_days,
+            'x_limit': x_limit,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }

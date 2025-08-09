@@ -300,6 +300,11 @@ def render_detailed_analysis(state):
                 elif isinstance(content, dict):
                     # 如果是字典，格式化显示
                     for key, value in content.items():
+                        # 专门处理X舆情Markdown片段
+                        if key == 'x_sentiment_md' and isinstance(value, str):
+                            st.subheader('X 平台舆情（Twitter）')
+                            st.markdown(value)
+                            continue
                         st.subheader(key.replace('_', ' ').title())
                         st.write(value)
                 else:
