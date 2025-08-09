@@ -9,6 +9,12 @@ from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
+# 可选导入 streamlit（仅在Web环境下可用）
+try:
+    import streamlit as st  # type: ignore
+except Exception:
+    st = None
+
 # 导入日志模块
 from tradingagents.utils.logging_manager import get_logger, get_logger_manager
 logger = get_logger('web')
@@ -400,7 +406,7 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
             # 允许从调用参数透传表单配置（如果上层传入）
             # 兼容旧调用，不报错
             try:
-                fc = st.session_state.get('form_config') if 'st' in sys.modules else None  # noqa
+                fc = st.session_state.get('form_config') if st is not None else None  # noqa
                 if fc and isinstance(fc, dict) and 'include_x_sentiment' in fc:
                     include_x = bool(fc.get('include_x_sentiment'))
                     x_days = int(fc.get('x_look_back_days', 7))
@@ -427,6 +433,27 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
                     state['sentiment_report']['x_sentiment_md'] = (prev + '\n\n' if prev else '') + x_md
         except Exception as e:
             logger.warning(f"[X] 舆情集成失败: {e}")
+
+        # 简易量化分析（A股）
+        try:
+            if market_type == 'A股':
+                update_progress("📐 运行量化因子与回测...")
+                from tradingagents.dataflows.quant_cn import run_quant_pipeline
+                # 量化回测窗口：以研究深度调整
+                look_back_days = {1:120,2:180,3:240,4:360}.get(research_depth, 240)
+                import datetime as _dt
+                end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
+                start_dt = end_dt - _dt.timedelta(days=look_back_days)
+                qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
+                if qres:
+                    state.setdefault('quant_report', {})
+                    # 只保留轻量展示字段（避免大DataFrame塞爆状态）
+                    state['quant_report']['backtest'] = qres.get('backtest', {})
+                    fac = qres.get('factors')
+                    if fac is not None and hasattr(fac, 'tail'):
+                        state['quant_report']['factors'] = fac.tail(100)  # 限制展示最后100行
+        except Exception as e:
+            logger.warning(f"[Quant] 量化集成失败: {e}")
 
         # 调试信息
         logger.debug(f"🔍 [DEBUG] 分析完成，decision类型: {type(decision)}")

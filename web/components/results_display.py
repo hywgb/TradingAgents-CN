@@ -282,6 +282,12 @@ def render_detailed_analysis(state):
             'title': '📋 投资建议',
             'icon': '📋',
             'description': '具体投资策略、仓位管理建议'
+        },
+        {
+            'key': 'quant_report',
+            'title': '📐 量化分析',
+            'icon': '📐',
+            'description': 'A股量化因子与简易回测结果'
         }
     ]
     
@@ -304,6 +310,15 @@ def render_detailed_analysis(state):
                         if key == 'x_sentiment_md' and isinstance(value, str):
                             st.subheader('X 平台舆情（Twitter）')
                             st.markdown(value)
+                            continue
+                        # 简易量化渲染
+                        if key == 'backtest' and isinstance(value, dict):
+                            st.subheader('量化回测（简易）')
+                            st.write(value)
+                            continue
+                        if key == 'factors' and hasattr(value, 'head'):
+                            st.subheader('因子样例（最近10行）')
+                            st.dataframe(value.tail(10))
                             continue
                         st.subheader(key.replace('_', ' ').title())
                         st.write(value)
