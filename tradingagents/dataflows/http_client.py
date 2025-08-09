@@ -41,7 +41,7 @@ class HttpClient:
         headers = {"User-Agent": DEFAULT_UA}
         if base_headers:
             headers.update(base_headers)
-        self.client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, headers=headers, http2=True)
+        self.client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, headers=headers, http2=True, trust_env=True)
         self.default_limiter = RateLimiter(default_rate_per_sec)
         self.host_limiters: Dict[str, RateLimiter] = {}
         if per_host_rate:
@@ -98,6 +98,9 @@ async def get_http_client() -> HttpClient:
             'www.google.com': 1.0,
             'newsapi.org': 2.0,
             'finnhub.io': 2.0,
+            'gnews.io': 2.0,
+            'api.eastmoney.com': 2.0,
+            'push2.eastmoney.com': 5.0,
         }
         try:
             import json

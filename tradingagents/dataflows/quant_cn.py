@@ -231,6 +231,26 @@ def _score_latest(fac: pd.DataFrame) -> float:
     )
 
 
+def _max_drawdown(series: List[float]) -> float:
+    if not series:
+        return 0.0
+    peak = -1e9
+    mdd = 0.0
+    for v in series:
+        peak = max(peak, v)
+        mdd = max(mdd, (peak - v) / max(peak, 1e-9))
+    return float(mdd)
+
+
+def _load_benchmark_close(start_date: str, end_date: str) -> Optional[pd.Series]:
+    """尝试加载沪深300指数收盘，若不可用返回None。此处用tushare统一接口占位。"""
+    try:
+        # 使用000300.SH或399300.SZ等作基准，统一接口当前返回文本，做简化占位：返回None
+        return None
+    except Exception:
+        return None
+
+
 def rolling_cross_section_backtest(
     universe: List[str],
     start_date: str,
@@ -285,7 +305,9 @@ def rolling_cross_section_backtest(
 
     selected_each: List[List[str]] = []
     period_rets: List[float] = []
+    turnover_flags: List[float] = []
 
+    prev_picks: List[str] = []
     for d in rbd:
         # Rank universe at date d by latest score up to d
         scores: List[Tuple[str, float]] = []
@@ -297,26 +319,31 @@ def rolling_cross_section_backtest(
         if not scores:
             selected_each.append([])
             period_rets.append(0.0)
+            turnover_flags.append(0.0)
             continue
         scores.sort(key=lambda x: (np.nan_to_num(x[1], nan=-1e9)), reverse=True)
         picks = [s for s, _ in scores[:top_k]]
         selected_each.append(picks)
+        # turnover: 比例变动近似（换手率=变化数量/持仓数）
+        if prev_picks:
+            changed = len(set(prev_picks) ^ set(picks))
+            turnover_flags.append(changed / float(top_k))
+        else:
+            turnover_flags.append(1.0)
+        prev_picks = picks
 
         # Compute next-day returns for picks
         rets = []
         for sym in picks:
             fac = sym_to_fac[sym]
-            # Locate index of date d in this symbol
             idx = fac.index[fac['date'] == d]
             if len(idx) == 0:
-                # find last date <= d
                 fac_d = fac[fac['date'] <= d]
                 if fac_d.empty:
                     continue
                 i = fac_d.index[-1]
             else:
                 i = idx[0]
-            # next day return
             if i + 1 < len(fac):
                 r = float(fac['close'].pct_change().iloc[i + 1]) if not np.isnan(fac['close'].pct_change().iloc[i + 1]) else 0.0
                 rets.append(max(0.0, r - cost))
@@ -326,14 +353,25 @@ def rolling_cross_section_backtest(
     # Build cumulative curve
     cum = 1.0
     curve = []
+    levels = []
+    wins = 0
     for d, r in zip(rbd, period_rets):
         cum *= (1.0 + r)
         curve.append({'date': d, 'cum': cum})
+        levels.append(cum)
+        if r > 0:
+            wins += 1
+
+    # Benchmark placeholder (None if unavailable)
+    bench = None
 
     summary = {
         'cum_return': cum - 1.0,
         'avg_period_ret': float(np.mean(period_rets)) if period_rets else 0.0,
-        'periods': len(rbd)
+        'periods': len(rbd),
+        'max_drawdown': _max_drawdown(levels),
+        'win_rate': (wins / len(period_rets)) if period_rets else 0.0,
+        'avg_turnover': float(np.mean(turnover_flags)) if turnover_flags else 0.0
     }
 
     return {
@@ -342,5 +380,6 @@ def rolling_cross_section_backtest(
         'selected_each_period': selected_each,
         'period_returns': period_rets,
         'cum_curve': curve,
+        'benchmark': bench,
         'summary': summary
     }

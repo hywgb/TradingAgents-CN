@@ -346,7 +346,13 @@ def render_detailed_analysis(state):
                                     fig2 = go.Figure()
                                     fig2.add_trace(go.Scatter(x=cdf['date'], y=cdf['cum_ret'], mode='lines', name='累积收益'))
                                     st.plotly_chart(fig2, use_container_width=True)
-                                st.write(value.get('summary', {}))
+                                summ = value.get('summary', {})
+                                if summ:
+                                    cols = st.columns(4)
+                                    cols[0].metric('累计收益', f"{summ.get('cum_return',0)*100:.2f}%")
+                                    cols[1].metric('最大回撤', f"{summ.get('max_drawdown',0)*100:.2f}%")
+                                    cols[2].metric('胜率', f"{summ.get('win_rate',0)*100:.1f}%")
+                                    cols[3].metric('平均换手', f"{summ.get('avg_turnover',0)*100:.1f}%")
                             except Exception:
                                 pass
                             # 导出按钮（CSV）

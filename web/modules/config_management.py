@@ -532,7 +532,32 @@ def render_system_settings():
         from tradingagents.utils.metrics import metrics
         snap = metrics.snapshot()
         if snap:
-            st.json(snap)
+            # KPI tiles
+            counters = snap.get('counters') or {}
+            hists = snap.get('hists') or {}
+            http_req = sum((counters.get('http_requests_total') or {}).values()) if isinstance(counters.get('http_requests_total'), dict) else 0
+            http_err = sum((counters.get('http_errors_total') or {}).values()) if isinstance(counters.get('http_errors_total'), dict) else 0
+            http_retry = sum((counters.get('http_retries_total') or {}).values()) if isinstance(counters.get('http_retries_total'), dict) else 0
+            cache_hit = sum((counters.get('cache_hit_total') or {}).values()) if isinstance(counters.get('cache_hit_total'), dict) else 0
+            cache_miss = sum((counters.get('cache_miss_total') or {}).values()) if isinstance(counters.get('cache_miss_total'), dict) else 0
+            p50 = (hists.get('http_latency_seconds') or {}).get('p50')
+            p95 = (hists.get('http_latency_seconds') or {}).get('p95')
+            colk1, colk2, colk3, colk4 = st.columns(4)
+            with colk1:
+                st.metric("HTTP请求", f"{int(http_req):,}")
+            with colk2:
+                st.metric("HTTP错误", f"{int(http_err):,}")
+            with colk3:
+                st.metric("HTTP重试", f"{int(http_retry):,}")
+            with colk4:
+                st.metric("缓存命中率", f"{(cache_hit/(cache_hit+cache_miss)*100 if (cache_hit+cache_miss)>0 else 0):.1f}%")
+            colh1, colh2 = st.columns(2)
+            with colh1:
+                st.metric("HTTP P50(s)", f"{p50:.2f}" if p50 is not None else "-")
+            with colh2:
+                st.metric("HTTP P95(s)", f"{p95:.2f}" if p95 is not None else "-")
+            with st.expander("原始指标快照"):
+                st.json(snap)
         else:
             st.caption("暂无指标数据")
     except Exception:
