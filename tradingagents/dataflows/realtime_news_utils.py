@@ -158,7 +158,15 @@ class RealtimeNewsAggregator:
             async def _run():
                 from .http_client import get_http_client
                 client = await get_http_client()
+                import time
+                t0 = time.perf_counter()
                 resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                t1 = time.perf_counter()
+                try:
+                    from tradingagents.utils.metrics import metrics as _m
+                    _m.hist('http_latency_seconds', {'host': 'finnhub.io', 'path': 'company-news'}, t1 - t0)
+                except Exception:
+                    pass
                 resp.raise_for_status()
                 return resp.json()
             try:
@@ -211,7 +219,15 @@ class RealtimeNewsAggregator:
             async def _run():
                 from .http_client import get_http_client
                 client = await get_http_client()
+                import time
+                t0 = time.perf_counter()
                 resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                t1 = time.perf_counter()
+                try:
+                    from tradingagents.utils.metrics import metrics as _m
+                    _m.hist('http_latency_seconds', {'host': 'alphavantage.co', 'path': 'NEWS_SENTIMENT'}, t1 - t0)
+                except Exception:
+                    pass
                 resp.raise_for_status()
                 return resp.json()
             try:
@@ -290,7 +306,15 @@ class RealtimeNewsAggregator:
                     async def _run():
                         from .http_client import get_http_client
                         client = await get_http_client()
+                        import time
+                        t0 = time.perf_counter()
                         resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                        t1 = time.perf_counter()
+                        try:
+                            from tradingagents.utils.metrics import metrics as _m
+                            _m.hist('http_latency_seconds', {'host': 'newsapi.org', 'path': 'everything'}, t1 - t0)
+                        except Exception:
+                            pass
                         resp.raise_for_status()
                         return resp.json()
                     try:
@@ -307,7 +331,15 @@ class RealtimeNewsAggregator:
                 async def _run():
                     from .http_client import get_http_client
                     client = await get_http_client()
+                    import time
+                    t0 = time.perf_counter()
                     resp = await client.get(url + '?' + '&'.join([f"{k}={v}" for k,v in params.items()]), headers=self.headers)
+                    t1 = time.perf_counter()
+                    try:
+                        from tradingagents.utils.metrics import metrics as _m
+                        _m.hist('http_latency_seconds', {'host': 'newsapi.org', 'path': 'everything'}, t1 - t0)
+                    except Exception:
+                        pass
                     resp.raise_for_status()
                     return resp.json()
                 from .http_client import get_http_client

@@ -22,7 +22,15 @@ async def _fetch_page(url: str, headers):
     await asyncio.sleep(random.uniform(0.5, 1.5))
     from .http_client import get_http_client
     client = await get_http_client()
+    import time
+    t0 = time.perf_counter()
     resp = await client.get(url, headers=headers, max_attempts=5)
+    t1 = time.perf_counter()
+    try:
+        from tradingagents.utils.metrics import metrics as _m
+        _m.hist('http_latency_seconds', {'host': 'www.google.com', 'path': 'news'}, t1 - t0)
+    except Exception:
+        pass
     return resp
 
 
