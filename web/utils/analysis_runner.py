@@ -439,19 +439,34 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
             if market_type == 'A股':
                 update_progress("📐 运行量化因子与回测...")
                 from tradingagents.dataflows.quant_cn import run_quant_pipeline
-                # 量化回测窗口：以研究深度调整
-                look_back_days = {1:120,2:180,3:240,4:360}.get(research_depth, 240)
-                import datetime as _dt
-                end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
-                start_dt = end_dt - _dt.timedelta(days=look_back_days)
-                qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
-                if qres:
-                    state.setdefault('quant_report', {})
-                    # 只保留轻量展示字段（避免大DataFrame塞爆状态）
-                    state['quant_report']['backtest'] = qres.get('backtest', {})
-                    fac = qres.get('factors')
-                    if fac is not None and hasattr(fac, 'tail'):
-                        state['quant_report']['factors'] = fac.tail(100)  # 限制展示最后100行
+                # 优先读取表单配置参数
+                try:
+                    fc = st.session_state.get('form_config') if st is not None else None
+                except Exception:
+                    fc = None
+                if fc and isinstance(fc, dict):
+                    look_back_days = int(fc.get('quant_look_back_days', {1:120,2:180,3:240,4:360}.get(research_depth, 240)))
+                    commission_bps = int(fc.get('quant_commission_bps', 1))
+                    enable_quant = bool(fc.get('enable_quant', True))
+                else:
+                    look_back_days = {1:120,2:180,3:240,4:360}.get(research_depth, 240)
+                    commission_bps = 1
+                    enable_quant = True
+                if enable_quant:
+                    import datetime as _dt
+                    end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
+                    start_dt = end_dt - _dt.timedelta(days=look_back_days)
+                    qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
+                    if qres:
+                        state.setdefault('quant_report', {})
+                        state['quant_report']['params'] = {
+                            'look_back_days': look_back_days,
+                            'commission_bps': commission_bps
+                        }
+                        state['quant_report']['backtest'] = qres.get('backtest', {})
+                        fac = qres.get('factors')
+                        if fac is not None and hasattr(fac, 'tail'):
+                            state['quant_report']['factors'] = fac.tail(100)
         except Exception as e:
             logger.warning(f"[Quant] 量化集成失败: {e}")
 

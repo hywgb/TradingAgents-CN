@@ -191,6 +191,28 @@ def render_analysis_form():
                 step=50,
                 help="限制抓取的推文数量上限"
             )
+
+            # 量化分析选项
+            enable_quant = st.checkbox(
+                "启用量化分析（A股）",
+                value=True,
+                help="运行基础因子与简易回测，展示K线与信号"
+            )
+            quant_look_back_days = st.slider(
+                "量化回测窗口（天）",
+                min_value=60,
+                max_value=720,
+                value=240,
+                step=30,
+                help="用于计算因子与回测的窗口长度"
+            )
+            quant_commission_bps = st.slider(
+                "交易成本（bps）",
+                min_value=0,
+                max_value=50,
+                value=1,
+                help="回测时假设的单边交易成本（基点）"
+            )
             
             include_risk_assessment = st.checkbox(
                 "包含风险评估",
@@ -241,6 +263,9 @@ def render_analysis_form():
             'include_x_sentiment': include_x_sentiment,
             'x_look_back_days': x_look_back_days,
             'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -290,6 +315,9 @@ def render_analysis_form():
             'include_x_sentiment': include_x_sentiment,
             'x_look_back_days': x_look_back_days,
             'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -304,6 +332,9 @@ def render_analysis_form():
             'include_x_sentiment': include_x_sentiment,
             'x_look_back_days': x_look_back_days,
             'x_limit': x_limit,
+            'enable_quant': enable_quant,
+            'quant_look_back_days': quant_look_back_days,
+            'quant_commission_bps': quant_commission_bps,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }

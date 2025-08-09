@@ -305,6 +305,17 @@ def render_detailed_analysis(state):
                     st.markdown(content)
                 elif isinstance(content, dict):
                     # 如果是字典，格式化显示
+                    # 特别处理量化：K线+信号
+                    if module['key'] == 'quant_report':
+                        fac = content.get('factors')
+                        if fac is not None and hasattr(fac, 'to_dict'):
+                            try:
+                                df = fac[['date','open','high','low','close']].copy()
+                                fig = go.Figure(data=[go.Candlestick(x=df['date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'])])
+                                st.plotly_chart(fig, use_container_width=True)
+                            except Exception:
+                                pass
+                        st.json(content.get('params', {}))
                     for key, value in content.items():
                         # 专门处理X舆情Markdown片段
                         if key == 'x_sentiment_md' and isinstance(value, str):
