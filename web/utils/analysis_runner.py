@@ -456,7 +456,7 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
                     import datetime as _dt
                     end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
                     start_dt = end_dt - _dt.timedelta(days=look_back_days)
-                    qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'))
+                    qres = run_quant_pipeline(formatted_symbol, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), commission_bps=commission_bps)
                     if qres:
                         state.setdefault('quant_report', {})
                         state['quant_report']['params'] = {

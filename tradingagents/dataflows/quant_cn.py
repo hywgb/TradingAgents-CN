@@ -119,18 +119,20 @@ def simple_cross_section_select(factors: pd.DataFrame, top_k: int = 20) -> List[
     return [1 if last > 0 else 0]
 
 
-def backtest_equal_weight(dates: List[str], signals: List[int], returns: List[float]) -> Dict[str, float]:
+def backtest_equal_weight(dates: List[str], signals: List[int], returns: List[float], commission_bps: int = 0, buy_hold_ret: Optional[float] = None) -> Dict[str, float]:
     """等权持仓回测：单标的示例。未来可扩展为多标的横截面回测。"""
     if not dates or not signals or not returns:
-        return {'cum_return': 0.0, 'trade_days': 0}
+        return {'cum_return': 0.0, 'trade_days': 0, 'buy_hold_cum_return': buy_hold_ret or 0.0}
     cum = 1.0
     for sig, r in zip(signals, returns):
         if sig == 1 and not math.isnan(r):
-            cum *= (1.0 + r)
-    return {'cum_return': cum - 1.0, 'trade_days': len(dates)}
+            # 扣除单边交易成本（bps）
+            cost = commission_bps / 10000.0 if commission_bps else 0.0
+            cum *= max(0.0, (1.0 + r - cost))
+    return {'cum_return': cum - 1.0, 'trade_days': len(dates), 'buy_hold_cum_return': buy_hold_ret or 0.0}
 
 
-def run_quant_pipeline(symbol: str, start_date: str, end_date: str) -> Dict[str, object]:
+def run_quant_pipeline(symbol: str, start_date: str, end_date: str, commission_bps: int = 0) -> Dict[str, object]:
     """量化流程：加载数据 -> 计算因子 -> 生成简单信号 -> 回测结果"""
     df = load_daily_bars(symbol, start_date, end_date)
     if df.empty:
@@ -142,5 +144,7 @@ def run_quant_pipeline(symbol: str, start_date: str, end_date: str) -> Dict[str,
     # 与 dates 对齐（示例仅取最后一天信号）
     returns = [next_ret.iloc[-1] if not next_ret.empty else np.nan]
     dates = [fac['date'].iloc[-1]]
-    bt = backtest_equal_weight(dates, signal, returns)
+    # 基准：区间内买入并持有
+    buy_hold = float((fac['close'].pct_change().add(1).cumprod().iloc[-1] - 1.0) if len(fac) > 1 else 0.0)
+    bt = backtest_equal_weight(dates, signal, returns, commission_bps=commission_bps, buy_hold_ret=buy_hold)
     return {'symbol': symbol, 'factors': fac, 'signals': signal, 'backtest': bt}
