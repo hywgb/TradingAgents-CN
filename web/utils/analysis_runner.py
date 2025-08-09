@@ -448,10 +448,12 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
                     look_back_days = int(fc.get('quant_look_back_days', {1:120,2:180,3:240,4:360}.get(research_depth, 240)))
                     commission_bps = int(fc.get('quant_commission_bps', 1))
                     enable_quant = bool(fc.get('enable_quant', True))
+                    quant_universe = fc.get('quant_universe', '').strip()
                 else:
                     look_back_days = {1:120,2:180,3:240,4:360}.get(research_depth, 240)
                     commission_bps = 1
                     enable_quant = True
+                    quant_universe = ''
                 if enable_quant:
                     import datetime as _dt
                     end_dt = _dt.datetime.strptime(analysis_date, "%Y-%m-%d")
@@ -467,6 +469,16 @@ def run_stock_analysis(stock_symbol, analysis_date, analysts, research_depth, ll
                         fac = qres.get('factors')
                         if fac is not None and hasattr(fac, 'tail'):
                             state['quant_report']['factors'] = fac.tail(100)
+                        # 多标的横截面（可选）
+                        if quant_universe:
+                            try:
+                                from tradingagents.dataflows.quant_cn import cross_section_backtest
+                                uni = [s.strip() for s in quant_universe.split(',') if s.strip()]
+                                if uni:
+                                    cs = cross_section_backtest(uni, start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d'), commission_bps=commission_bps)
+                                    state['quant_report']['cross_section'] = cs
+                            except Exception as _:
+                                pass
         except Exception as e:
             logger.warning(f"[Quant] 量化集成失败: {e}")
 

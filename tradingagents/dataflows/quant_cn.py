@@ -148,3 +148,40 @@ def run_quant_pipeline(symbol: str, start_date: str, end_date: str, commission_b
     buy_hold = float((fac['close'].pct_change().add(1).cumprod().iloc[-1] - 1.0) if len(fac) > 1 else 0.0)
     bt = backtest_equal_weight(dates, signal, returns, commission_bps=commission_bps, buy_hold_ret=buy_hold)
     return {'symbol': symbol, 'factors': fac, 'signals': signal, 'backtest': bt}
+
+
+def cross_section_backtest(universe: List[str], start_date: str, end_date: str, commission_bps: int = 0) -> Dict[str, object]:
+    """极简横截面回测：
+    - 对每个标的计算因子与当日评分（mom_20 + ma20_dev - vol_20）
+    - 取样本期最后一天，选择 Top-1 作为持仓
+    - 下一交易日收益作为组合收益，扣除交易成本
+    """
+    results: Dict[str, Dict[str, object]] = {}
+    scores: List[Tuple[str, float]] = []
+    for sym in universe:
+        df = load_daily_bars(sym, start_date, end_date)
+        if df.empty or len(df) < 30:
+            continue
+        fac = compute_alpha_factors(df)
+        s = (
+            fac['mom_20'].fillna(0.0) +
+            fac['ma20_dev'].fillna(0.0) -
+            fac['vol_20'].fillna(0.0)
+        )
+        scores.append((sym, float(s.iloc[-1])))
+        results[sym] = {'factors': fac}
+    if not scores:
+        return {'universe': universe, 'selected': [], 'portfolio_return': 0.0}
+    # 选取Top-1
+    scores.sort(key=lambda x: x[1], reverse=True)
+    selected = [scores[0][0]]
+    # 计算下一日收益
+    rets = []
+    for sym in selected:
+        fac = results[sym]['factors']
+        next_ret = fac['close'].pct_change().shift(-1)
+        r = float(next_ret.iloc[-1]) if not next_ret.empty else 0.0
+        cost = commission_bps / 10000.0 if commission_bps else 0.0
+        rets.append(max(0.0, r - cost))
+    port_ret = float(np.mean(rets)) if rets else 0.0
+    return {'universe': universe, 'selected': selected, 'portfolio_return': port_ret, 'scores': scores[:5]}

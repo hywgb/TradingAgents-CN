@@ -329,6 +329,13 @@ def render_detailed_analysis(state):
                             if 'buy_hold_cum_return' in value:
                                 st.metric(label='区间买入并持有收益', value=f"{value['buy_hold_cum_return']*100:.2f}%")
                             continue
+                        if key == 'cross_section' and isinstance(value, dict):
+                            st.subheader('横截面回测（极简）')
+                            st.write({k: value[k] for k in ['selected','portfolio_return'] if k in value})
+                            if 'scores' in value:
+                                st.caption('Top Scores 示例')
+                                st.write(value['scores'])
+                            continue
                         if key == 'factors' and hasattr(value, 'head'):
                             st.subheader('因子样例（最近10行）')
                             st.dataframe(value.tail(10))

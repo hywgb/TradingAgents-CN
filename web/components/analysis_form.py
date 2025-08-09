@@ -213,6 +213,11 @@ def render_analysis_form():
                 value=1,
                 help="回测时假设的单边交易成本（基点）"
             )
+            quant_universe = st.text_input(
+                "多标的列表（逗号分隔，可选）",
+                value="",
+                help="例如：600036,600519,000001；留空则仅对当前标的进行量化分析"
+            )
             
             include_risk_assessment = st.checkbox(
                 "包含风险评估",
@@ -266,6 +271,7 @@ def render_analysis_form():
             'enable_quant': enable_quant,
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -318,6 +324,7 @@ def render_analysis_form():
             'enable_quant': enable_quant,
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
@@ -335,6 +342,7 @@ def render_analysis_form():
             'enable_quant': enable_quant,
             'quant_look_back_days': quant_look_back_days,
             'quant_commission_bps': quant_commission_bps,
+            'quant_universe': quant_universe,
             'include_risk_assessment': include_risk_assessment,
             'custom_prompt': custom_prompt
         }
